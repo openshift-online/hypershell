@@ -241,6 +241,27 @@ describe("App", () => {
     ).toBeDefined();
   });
 
+  // Verifies: SDLC-VIS-07.03
+  it("hides the freight bar until the masthead toggle opens it", async () => {
+    const history = renderApp(baseApi(), {
+      path: "/",
+      search: "?bundle=sha256:a",
+    });
+    const toggle = await screen.findByRole("button", {
+      name: "Release bundles",
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(document.getElementById("glass-freight-bar")).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(document.getElementById("glass-freight-bar")).not.toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(document.getElementById("glass-freight-bar")).toBeNull();
+    // Hiding the bar keeps the selected bundle.
+    expect(history.read().search).toContain("bundle=");
+  });
+
   it("offers an E2E Runs tab that renders the e2e view", async () => {
     const promotion: PromotionData = {
       order: [],

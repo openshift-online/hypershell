@@ -1,8 +1,6 @@
 import "@patternfly/react-core/dist/styles/base.css";
 
 import {
-  ActionList,
-  ActionListItem,
   Alert,
   Button,
   Card,
@@ -10,23 +8,10 @@ import {
   CardHeader,
   CardTitle,
   Content,
-  DataList,
-  DataListCell,
-  DataListItem,
-  DataListItemCells,
-  DataListItemRow,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
   DescriptionListTerm,
-  Drawer,
-  DrawerActions,
-  DrawerCloseButton,
-  DrawerContent,
-  DrawerContentBody,
-  DrawerHead,
-  DrawerPanelBody,
-  DrawerPanelContent,
   EmptyState,
   EmptyStateBody,
   Flex,
@@ -42,6 +27,7 @@ import {
   Stack,
   StackItem,
   Title,
+  Tooltip,
   Truncate,
 } from "@patternfly/react-core";
 import {
@@ -56,19 +42,12 @@ import {
   RedoIcon,
   SyncAltIcon,
 } from "@patternfly/react-icons";
-import {
-  InnerScrollContainer,
-  Table,
-  Tbody,
-  Td,
-  Th,
-  Thead,
-  Tr,
-} from "@patternfly/react-table";
+import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { HealthStatus } from "../../common/health-status";
+import { initialsDataUri } from "./initials";
 import styles from "./delivery-pipeline.module.css";
 import {
   FIXTURES,
@@ -81,21 +60,79 @@ import {
   type ChangeDetail,
   type DeliveryFixture,
   type DeliveryState,
+  type NextItem,
+  type NowNextRow,
   type PipelineNow,
-  type Progress,
   type PromotionAttempt,
   type PromotionOutcome,
   type Severity,
   type StageCell,
+  type EnvOutcome,
+  type EnvironmentRow,
   type StageState,
   type WhereToLook,
+  SHIPPED_HUBS,
+  SHIPPED_ROWS,
 } from "./delivery-pipeline-fixtures";
 
 // Glass Delivery tab page surface (fleet-dashboard-delivery-pipeline.spec,
-// FLT-DLV-01..23). Page-owned: header region, Pipeline now panel, Now and
-// next summary, change
-// table, details drawer, and every reachable state. The Glass tab bar and
-// masthead are shell chrome and live in the design-review story only.
+// FLT-DLV-01..24). Page-owned: header region, Pipeline now panel, the Changes
+// on main strip of change panels, and every reachable state. The Glass tab bar
+// and masthead are shell chrome and live in the design-review story only.
+
+// FLT-DLV-24: every clock time reveals its full date and time on hover and
+// keyboard focus. The mockup's day is fixed.
+const CLOCK = /\b\d{1,2}:\d{2}\b/g;
+
+function FullTime({ clock }: { clock: string }) {
+  const full = `Mon 9 Nov 2026, ${clock}:00 CET`;
+  // triggerRef keeps the Tooltip from wrapping the time in a div, so a time
+  // can sit inside a paragraph.
+  const ref = useRef<HTMLTimeElement>(null);
+  return (
+    <>
+      <time
+        className={styles.time}
+        dateTime={`2026-11-09T${clock.padStart(5, "0")}:00+01:00`}
+        ref={ref}
+        tabIndex={0}
+      >
+        {clock}
+      </time>
+      <Tooltip content={full} triggerRef={ref} />
+    </>
+  );
+}
+
+function Timed({ text }: { text: string }) {
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(CLOCK)) {
+    const at = m.index ?? 0;
+    if (at > last) parts.push(text.slice(last, at));
+    parts.push(<FullTime clock={m[0]} key={at} />);
+    last = at + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+}
+
+// FLT-DLV-24: a bundle is named with its Initials identicon and alias.
+function BundleName({ alias }: { alias: string }) {
+  return (
+    <span className="pf-v6-u-text-nowrap">
+      <img
+        alt=""
+        aria-hidden
+        className={styles.identicon}
+        height={20}
+        src={initialsDataUri(alias)}
+        width={20}
+      />
+      {alias}
+    </span>
+  );
+}
 
 const STATE_LABEL: Readonly<Record<StageState, string>> = {
   "not-started": "Not started",
@@ -213,7 +250,7 @@ function StageStatus({ cell }: { cell: StageCell }) {
       </StackItem>
       {secondary ? (
         <StackItem className="pf-v6-u-font-size-sm pf-v6-u-text-color-subtle">
-          {secondary}
+          <Timed text={secondary} />
         </StackItem>
       ) : null}
       {cell.overdue ? (
@@ -273,7 +310,8 @@ function PromotionHistory({
       {attempts.map((a) => (
         <StackItem key={`${a.gitopsPr}-${a.promoted}`}>
           <OutcomeIcon outcome={a.outcome} /> {OUTCOME_LABEL[a.outcome]}:{" "}
-          {a.bundle} ({a.gitopsPr}), promoted {a.promoted}
+          <BundleName alias={a.bundle} /> ({a.gitopsPr}), promoted{" "}
+          <Timed text={a.promoted} />
           {a.detail ? (
             <span className="pf-v6-u-text-color-subtle"> - {a.detail}</span>
           ) : null}
@@ -283,76 +321,40 @@ function PromotionHistory({
   );
 }
 
-// FLT-DLV-19: one numbered, equal-width cell per phase, each joined to its
-// own label. State is carried by text as well as color.
-function ProgressBar({
-  label,
-  progress,
-  openWhereToLook,
-}: {
-  label: string;
-  progress: Progress;
-  openWhereToLook: boolean;
-}) {
-  return (
-    <div className={styles.progress}>
-      <Content className="pf-v6-u-font-size-sm" component="p">
-        {progress.percent === undefined
-          ? "Progress"
-          : `${progress.percent}% complete`}
-      </Content>
-      <ol
-        aria-label={
-          progress.percent === undefined
-            ? `Delivery progress of ${label}`
-            : `Delivery progress of ${label}: ${progress.percent}% complete`
-        }
-        className={styles.cells}
-      >
-        {progress.cells.map((cell, i) => (
-          <li className={styles.cell} key={cell.label}>
-            <span
-              aria-hidden
-              className={styles.segment}
-              data-overdue={cell.overdue ? "true" : undefined}
-              data-state={cell.state}
-            >
-              {i + 1}
-            </span>
-            <span aria-hidden className={styles.connector} />
-            <span className={styles.label}>
-              <strong>{cell.label}</strong>
-              <br />
-              <span className="pf-v6-u-text-nowrap">
-                <StageStateIcon state={cell.state} /> {STATE_LABEL[cell.state]}
-              </span>
-              {cell.time ? (
-                <>
-                  <br />
-                  <span className="pf-v6-u-text-color-subtle">{cell.time}</span>
-                </>
-              ) : null}
-              {cell.overdue ? (
-                <>
-                  <br />
-                  <HealthStatus appearance="warning" label="Overdue" />
-                </>
-              ) : null}
-              {cell.whereToLook ? (
-                <>
-                  <br />
-                  <WhereToLookPopover
-                    initiallyOpen={openWhereToLook}
-                    look={cell.whereToLook}
-                  />
-                </>
-              ) : null}
-            </span>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
+// FLT-DLV-18: an environment reported by the change's first bundle only.
+function EnvOutcomeLine({ outcome }: { outcome: EnvOutcome }) {
+  switch (outcome.kind) {
+    case "deployed":
+      return (
+        <span>
+          <StageStateIcon state="passed" /> Passed -{" "}
+          <BundleName alias={outcome.bundle} /> deployed{" "}
+          <Timed text={outcome.deployed} />
+          {outcome.gatesPassed ? (
+            <>
+              {" "}
+              - Gates passed <Timed text={outcome.gatesPassed} />
+            </>
+          ) : null}
+        </span>
+      );
+    case "failed":
+      return (
+        <span>
+          <StageStateIcon state="failed" /> Failed -{" "}
+          <BundleName alias={outcome.bundle} /> deployed{" "}
+          <Timed text={outcome.deployed} /> - {outcome.detail}
+        </span>
+      );
+    default:
+      return (
+        <span>
+          <OutcomeIcon outcome="replaced" /> Not deployed - replaced by{" "}
+          <BundleName alias={outcome.replacedBy} />{" "}
+          <Timed text={outcome.promoted} />
+        </span>
+      );
+  }
 }
 
 function SummaryIcon({ severity }: { severity: Severity }) {
@@ -392,7 +394,26 @@ function StateText({ state, text }: { state: StageState; text: string }) {
   return (
     <>
       <StageStateIcon state={state} /> {STATE_LABEL[state]}
-      <span className="pf-v6-u-text-color-subtle"> - {text}</span>
+      <span className="pf-v6-u-text-color-subtle">
+        {" - "}
+        <Timed text={text} />
+      </span>
+    </>
+  );
+}
+
+function nextKey(item: NextItem): string {
+  return typeof item === "string" ? item : `${item.bundle}-${item.text}`;
+}
+
+// FLT-DLV-23: an expected event; a bundle event shows the bundle first.
+function NextLine({ item }: { item: NextItem }) {
+  if (typeof item === "string") return <Timed text={item} />;
+  return (
+    <>
+      <BundleName alias={item.bundle} />
+      {" - "}
+      <Timed text={item.text} />
     </>
   );
 }
@@ -426,13 +447,13 @@ function PipelineNowCard({ now }: { now: PipelineNow }) {
                   <DescriptionListGroup>
                     <DescriptionListTerm>Application main</DescriptionListTerm>
                     <DescriptionListDescription>
-                      {now.appHead}
+                      <Timed text={now.appHead} />
                     </DescriptionListDescription>
                   </DescriptionListGroup>
                   <DescriptionListGroup>
                     <DescriptionListTerm>GitOps main</DescriptionListTerm>
                     <DescriptionListDescription>
-                      {now.gitopsHead}
+                      <Timed text={now.gitopsHead} />
                     </DescriptionListDescription>
                   </DescriptionListGroup>
                 </DescriptionList>
@@ -464,8 +485,10 @@ function PipelineNowCard({ now }: { now: PipelineNow }) {
                   <Content component="p">Nothing expected</Content>
                 ) : (
                   <Content component="ol">
-                    {now.next.map((step) => (
-                      <li key={step}>{step}</li>
+                    {now.next.map((item) => (
+                      <li key={nextKey(item)}>
+                        <NextLine item={item} />
+                      </li>
                     ))}
                   </Content>
                 )}
@@ -488,9 +511,12 @@ function PipelineNowCard({ now }: { now: PipelineNow }) {
                   {now.train.map((b) => (
                     <Tr key={b.alias}>
                       <Td dataLabel="Bundle train">
-                        <StageStateIcon state={b.state} /> {b.alias}
+                        <StageStateIcon state={b.state} />{" "}
+                        <BundleName alias={b.alias} />
                       </Td>
-                      <Td dataLabel="Published">{b.published}</Td>
+                      <Td dataLabel="Published">
+                        <Timed text={b.published} />
+                      </Td>
                       <Td dataLabel="Changed">{b.changed}</Td>
                       <Td dataLabel="Where">{b.where}</Td>
                     </Tr>
@@ -514,7 +540,9 @@ function PipelineNowCard({ now }: { now: PipelineNow }) {
                   <Tr key={env.instance}>
                     <Td dataLabel="Environment">{env.instance}</Td>
                     <Td dataLabel="Group">{env.group}</Td>
-                    <Td dataLabel="Runs">{env.bundle}</Td>
+                    <Td dataLabel="Runs">
+                      <BundleName alias={env.bundle} />
+                    </Td>
                     <Td dataLabel="State">
                       <StateText state={env.state} text={env.text} />
                     </Td>
@@ -524,183 +552,6 @@ function PipelineNowCard({ now }: { now: PipelineNow }) {
             </Table>
           </StackItem>
         </Stack>
-      </CardBody>
-    </Card>
-  );
-}
-
-// FLT-DLV-10: one row per undelivered change, newest first, at most 3.
-function NowAndNext({
-  fixture,
-  openWhereToLook,
-}: {
-  fixture: DeliveryFixture;
-  openWhereToLook: boolean;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          <Flex
-            alignItems={{ default: "alignItemsCenter" }}
-            spaceItems={{ default: "spaceItemsSm" }}
-          >
-            <FlexItem>
-              <SummaryIcon severity={fixture.summarySeverity} />
-            </FlexItem>
-            <FlexItem>
-              <Title headingLevel="h2" size="lg">
-                Now and next
-              </Title>
-            </FlexItem>
-          </Flex>
-        </CardTitle>
-      </CardHeader>
-      <CardBody>
-        {fixture.deliveredSummary ? (
-          <Content component="p">{fixture.deliveredSummary}</Content>
-        ) : (
-          <DataList aria-label="Changes in flight" isCompact>
-            {fixture.summary.map((row) => (
-              <DataListItem
-                aria-labelledby={`now-next-${row.shortSha}`}
-                key={row.shortSha}
-              >
-                <DataListItemRow>
-                  <DataListItemCells
-                    dataListCells={[
-                      <DataListCell key="change" width={2}>
-                        <Content
-                          className="pf-v6-u-font-family-monospace"
-                          component="p"
-                          id={`now-next-${row.shortSha}`}
-                        >
-                          {changeName(row.shortSha, row.pr)}
-                        </Content>
-                        <Content
-                          className="pf-v6-u-text-color-subtle"
-                          component="small"
-                        >
-                          <Truncate content={row.title} />
-                        </Content>
-                      </DataListCell>,
-                      <DataListCell key="now" width={3}>
-                        <Content component="p">
-                          <strong>Now</strong>
-                        </Content>
-                        <Flex spaceItems={{ default: "spaceItemsSm" }}>
-                          <FlexItem>
-                            <SummaryIcon severity={row.severity} />
-                          </FlexItem>
-                          <FlexItem flex={{ default: "flex_1" }}>
-                            {row.now}
-                          </FlexItem>
-                        </Flex>
-                      </DataListCell>,
-                      <DataListCell key="next" width={3}>
-                        <Content component="p">
-                          <strong>Next</strong>
-                        </Content>
-                        {row.next}
-                      </DataListCell>,
-                    ]}
-                  />
-                </DataListItemRow>
-                <div className="pf-v6-u-px-md pf-v6-u-pb-md">
-                  <ProgressBar
-                    label={changeName(row.shortSha, row.pr)}
-                    openWhereToLook={openWhereToLook}
-                    progress={row.progress}
-                  />
-                </div>
-              </DataListItem>
-            ))}
-          </DataList>
-        )}
-      </CardBody>
-    </Card>
-  );
-}
-
-// FLT-DLV-03: one row per change, one column per stage, then environment
-// groups. The first column stays visible while the stages scroll sideways.
-function ChangeTable({
-  changes,
-  selectedSha,
-}: {
-  changes: readonly Change[];
-  selectedSha?: string;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          <Title headingLevel="h2" size="lg">
-            Changes on main
-          </Title>
-        </CardTitle>
-      </CardHeader>
-      <CardBody>
-        <InnerScrollContainer>
-          <Table aria-label="Changes on main and their delivery stages">
-            <Thead>
-              <Tr>
-                <Th hasRightBorder isStickyColumn stickyMinWidth="18rem">
-                  Change
-                </Th>
-                {STAGES.map((stage) => (
-                  <Th key={stage.key} modifier="nowrap">
-                    {stage.label}
-                  </Th>
-                ))}
-              </Tr>
-            </Thead>
-            <Tbody>
-              {changes.map((change) => (
-                <Tr
-                  isClickable
-                  isRowSelected={change.sha === selectedSha}
-                  key={change.sha}
-                  onRowClick={() => undefined}
-                >
-                  <Td
-                    dataLabel="Change"
-                    hasRightBorder
-                    isStickyColumn
-                    stickyMinWidth="18rem"
-                  >
-                    <Button
-                      className="pf-v6-u-font-family-monospace"
-                      isInline
-                      variant="link"
-                    >
-                      {changeName(change.shortSha, change.pr)}
-                    </Button>
-                    <Content
-                      className="pf-v6-u-text-color-subtle"
-                      component="small"
-                    >
-                      <Truncate content={change.title} />
-                    </Content>
-                    <Content
-                      className="pf-v6-u-text-color-subtle"
-                      component="small"
-                    >
-                      by {change.author}
-                    </Content>
-                  </Td>
-                  {STAGES.map((stage) => (
-                    <Td dataLabel={stage.label} key={stage.key}>
-                      <StageStatus
-                        cell={change.stages[stage.key] ?? { state: "unknown" }}
-                      />
-                    </Td>
-                  ))}
-                </Tr>
-              ))}
-            </Tbody>
-          </Table>
-        </InnerScrollContainer>
       </CardBody>
     </Card>
   );
@@ -733,179 +584,450 @@ function ExternalLink({ children }: { children: React.ReactNode }) {
   );
 }
 
-// FLT-DLV-11: the selected change's stages, checks, bundle, and environments.
-function ChangeDetails({ detail }: { detail: ChangeDetail }) {
-  const groups = Array.from(new Set(detail.environments.map((e) => e.group)));
+// The bundle a Release cell names: its alias is the detail's first part.
+function releaseBundle(cell: StageCell): string | undefined {
+  if (cell.state !== "passed" || !cell.detail) return undefined;
+  return cell.detail.split(",")[0];
+}
 
+// FLT-DLV-19: one numbered step per stage, each with its state and a time.
+// FLT-DLV-19: a group step's environments, each linked to the Fleet Map and
+// reported by the change's first bundle (FLT-DLV-18).
+function EnvList({ envs }: { envs: readonly EnvironmentRow[] }) {
   return (
-    <DrawerPanelContent widths={{ default: "width_50", xl: "width_33" }}>
-      <DrawerHead>
-        <Title headingLevel="h2" size="xl">
-          <span className="pf-v6-u-font-family-monospace">
-            {changeName(detail.shortSha, detail.pr)}
-          </span>
+    <Stack className="pf-v6-u-font-size-sm">
+      {envs.map((env) => (
+        <StackItem key={env.instance}>
+          <Button
+            aria-label={`Open ${env.instance} on Fleet Map`}
+            component="a"
+            href="#"
+            isInline
+            variant="link"
+          >
+            {env.instance}
+          </Button>
+          :{" "}
+          {env.outcome ? (
+            <EnvOutcomeLine outcome={env.outcome} />
+          ) : (
+            <StageStatus cell={env.cell} />
+          )}
+          {env.history ? <PromotionHistory attempts={env.history} /> : null}
+        </StackItem>
+      ))}
+    </Stack>
+  );
+}
+
+function StageStep({
+  stageKey,
+  cell,
+  openWhereToLook,
+  envs = [],
+}: {
+  stageKey: string;
+  cell: StageCell;
+  openWhereToLook: boolean;
+  envs?: readonly EnvironmentRow[];
+}) {
+  const bundle = stageKey === "release" ? releaseBundle(cell) : undefined;
+  const rest = bundle
+    ? cell.detail?.slice(bundle.length).replace(/^,\s*/, "")
+    : cell.detail;
+  return (
+    <Stack>
+      <StackItem className="pf-v6-u-font-size-sm">
+        {STATE_LABEL[cell.state]}
+        {cell.primary ? (
+          <>
+            {" - "}
+            <Timed text={cell.primary} />
+          </>
+        ) : null}
+      </StackItem>
+      {bundle ? (
+        <StackItem className="pf-v6-u-font-size-sm">
+          <BundleName alias={bundle} />
+          {rest ? (
+            <span className="pf-v6-u-text-color-subtle"> - {rest}</span>
+          ) : null}
+        </StackItem>
+      ) : rest ? (
+        <StackItem className="pf-v6-u-font-size-sm pf-v6-u-text-color-subtle">
+          <Timed text={rest} />
+        </StackItem>
+      ) : null}
+      {cell.overdue ? (
+        <StackItem className="pf-v6-u-font-size-sm">
+          <HealthStatus appearance="warning" label="Overdue" />
+        </StackItem>
+      ) : null}
+      {cell.whereToLook ? (
+        <StackItem>
+          <WhereToLookPopover
+            initiallyOpen={openWhereToLook}
+            look={cell.whereToLook}
+          />
+        </StackItem>
+      ) : null}
+      {cell.failedAttempts ? (
+        <StackItem className="pf-v6-u-font-size-sm">
+          <HealthStatus
+            appearance="warning"
+            label={
+              cell.failedAttempts === 1
+                ? "1 failed attempt"
+                : `${cell.failedAttempts} failed attempts`
+            }
+          />
+        </StackItem>
+      ) : null}
+      {envs.length > 0 ? (
+        <StackItem>
+          <EnvList envs={envs} />
+        </StackItem>
+      ) : null}
+    </Stack>
+  );
+}
+
+// FLT-DLV-11: the details of one change, shown in its panel without a click.
+function PanelDetails({ detail }: { detail: ChangeDetail }) {
+  return (
+    <Stack hasGutter>
+      {detail.checks.length > 0 ? (
+        <StackItem>
+          <Title headingLevel="h4" size="md">
+            Builds and policy checks
+          </Title>
+          <DescriptionList isCompact>
+            {detail.checks.map((check) => (
+              <DescriptionListGroup key={check.component}>
+                <DescriptionListTerm>{check.component}</DescriptionListTerm>
+                <DescriptionListDescription>
+                  Build: {check.build}. Policy check: {check.policy}.{" "}
+                  <ExternalLink>View check runs</ExternalLink>
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+            ))}
+          </DescriptionList>
+        </StackItem>
+      ) : null}
+      <StackItem>
+        <Title headingLevel="h4" size="md">
+          Bundle
         </Title>
-        <Content component="p">{detail.title}</Content>
-        <Content className="pf-v6-u-text-color-subtle" component="small">
-          by {detail.author}
-        </Content>
-        <DrawerActions>
-          <DrawerCloseButton onClick={() => undefined} />
-        </DrawerActions>
-      </DrawerHead>
-      <DrawerPanelBody>
-        <Stack hasGutter>
-          <StackItem>
-            <Title headingLevel="h3" size="md">
-              Stages
-            </Title>
-            <ProgressStepper aria-label="Delivery stages" isVertical>
-              {detail.timeline.map((step) => (
-                <ProgressStep
-                  description={step.description}
-                  id={`step-${step.label}`}
-                  isCurrent={step.state === "running"}
-                  key={step.label}
-                  titleId={`step-${step.label}-title`}
-                  variant={STEP_VARIANT[step.state]}
+        <DescriptionList isCompact>
+          <DescriptionListGroup>
+            <DescriptionListTerm>Version</DescriptionListTerm>
+            <DescriptionListDescription>
+              <BundleName alias={detail.bundle.alias} /> - published{" "}
+              <Timed text={detail.bundle.published} />
+            </DescriptionListDescription>
+          </DescriptionListGroup>
+          <DescriptionListGroup>
+            <DescriptionListTerm>Tag</DescriptionListTerm>
+            <DescriptionListDescription>
+              <Truncate content={detail.bundle.tag} position="middle" />
+            </DescriptionListDescription>
+          </DescriptionListGroup>
+          <DescriptionListGroup>
+            <DescriptionListTerm>Digest</DescriptionListTerm>
+            <DescriptionListDescription>
+              <Truncate content={detail.bundle.digest} position="middle" />
+            </DescriptionListDescription>
+          </DescriptionListGroup>
+          <DescriptionListGroup>
+            <DescriptionListTerm>Downloads</DescriptionListTerm>
+            <DescriptionListDescription>
+              <ExternalLink>
+                <Timed text={detail.bundle.downloads} />
+              </ExternalLink>
+            </DescriptionListDescription>
+          </DescriptionListGroup>
+          <DescriptionListGroup>
+            <DescriptionListTerm>Renovate</DescriptionListTerm>
+            <DescriptionListDescription>
+              <ExternalLink>
+                <Timed text={detail.gitopsPr} />
+              </ExternalLink>
+            </DescriptionListDescription>
+          </DescriptionListGroup>
+        </DescriptionList>
+      </StackItem>
+    </Stack>
+  );
+}
+
+function panelSeverity(change: Change): Severity {
+  const cells = Object.values(change.stages);
+  if (cells.some((c) => c.state === "failed")) return "danger";
+  if (cells.some((c) => c.overdue)) return "warning";
+  if (cells.every((c) => c.state === "passed" || c.state === "not-needed"))
+    return "good";
+  return "info";
+}
+
+// FLT-DLV-03, FLT-DLV-10, FLT-DLV-11: one change, its state, its next step,
+// its stepper, and its details.
+function ChangePanel({
+  change,
+  row,
+  detail,
+  selected,
+  openWhereToLook,
+}: {
+  change: Change;
+  row?: NowNextRow;
+  detail?: ChangeDetail;
+  selected: boolean;
+  openWhereToLook: boolean;
+}) {
+  const name = changeName(change.shortSha, change.pr);
+  const prod = change.stages.prod;
+  const deliveredAt = row
+    ? undefined
+    : prod?.state === "passed"
+      ? prod.primary
+      : undefined;
+  return (
+    <li className={styles.panel} data-selected={selected ? "true" : undefined}>
+      <Card isCompact isFullHeight isPlain>
+        <CardHeader>
+          <CardTitle>
+            <Flex
+              alignItems={{ default: "alignItemsCenter" }}
+              flexWrap={{ default: "nowrap" }}
+              spaceItems={{ default: "spaceItemsSm" }}
+            >
+              <FlexItem>
+                <SummaryIcon severity={panelSeverity(change)} />
+              </FlexItem>
+              <FlexItem>
+                <Title
+                  className="pf-v6-u-font-family-monospace"
+                  headingLevel="h3"
+                  size="md"
                 >
-                  {step.label}
-                </ProgressStep>
-              ))}
-            </ProgressStepper>
-          </StackItem>
-          {detail.checks.length > 0 ? (
+                  {name}
+                </Title>
+              </FlexItem>
+              {row?.progress.percent !== undefined ? (
+                <FlexItem align={{ default: "alignRight" }}>
+                  <span className="pf-v6-u-font-size-sm">
+                    {row.progress.percent}%
+                  </span>
+                </FlexItem>
+              ) : null}
+            </Flex>
+          </CardTitle>
+          <Content component="p">
+            <Truncate content={change.title} />
+          </Content>
+          <Content className="pf-v6-u-text-color-subtle" component="small">
+            by {change.author}
+            {" - "}
+            <ExternalLink>Pull request</ExternalLink>{" "}
+            <ExternalLink>Commit</ExternalLink>
+          </Content>
+        </CardHeader>
+        <CardBody>
+          <Stack hasGutter>
             <StackItem>
-              <Title headingLevel="h3" size="md">
-                Builds and policy checks
-              </Title>
-              <DescriptionList isCompact isHorizontal>
-                {detail.checks.map((check) => (
-                  <DescriptionListGroup key={check.component}>
-                    <DescriptionListTerm>{check.component}</DescriptionListTerm>
+              {row ? (
+                <DescriptionList isCompact>
+                  <DescriptionListGroup>
+                    <DescriptionListTerm>Now</DescriptionListTerm>
                     <DescriptionListDescription>
-                      Build: {check.build}. Policy check: {check.policy}.{" "}
-                      <ExternalLink>View check runs</ExternalLink>
+                      <Timed text={row.now} />
                     </DescriptionListDescription>
                   </DescriptionListGroup>
-                ))}
-              </DescriptionList>
+                  <DescriptionListGroup>
+                    <DescriptionListTerm>Next</DescriptionListTerm>
+                    <DescriptionListDescription>
+                      <Timed text={row.next} />
+                    </DescriptionListDescription>
+                  </DescriptionListGroup>
+                </DescriptionList>
+              ) : deliveredAt ? (
+                <Content component="p">
+                  Delivered <Timed text={deliveredAt} />
+                </Content>
+              ) : null}
             </StackItem>
-          ) : null}
-          <StackItem>
-            <Title headingLevel="h3" size="md">
-              Bundle
-            </Title>
-            <DescriptionList isCompact isHorizontal>
-              <DescriptionListGroup>
-                <DescriptionListTerm>Alias</DescriptionListTerm>
-                <DescriptionListDescription>
-                  {detail.bundle.alias}
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-              <DescriptionListGroup>
-                <DescriptionListTerm>Tag</DescriptionListTerm>
-                <DescriptionListDescription>
-                  <Truncate content={detail.bundle.tag} position="middle" />
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-              <DescriptionListGroup>
-                <DescriptionListTerm>Digest</DescriptionListTerm>
-                <DescriptionListDescription>
-                  <Truncate content={detail.bundle.digest} position="middle" />
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-              <DescriptionListGroup>
-                <DescriptionListTerm>Published</DescriptionListTerm>
-                <DescriptionListDescription>
-                  {detail.bundle.published}.{" "}
-                  <ExternalLink>{detail.bundle.downloads}</ExternalLink>
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-              <DescriptionListGroup>
-                <DescriptionListTerm>GitOps update</DescriptionListTerm>
-                <DescriptionListDescription>
-                  <ExternalLink>{detail.gitopsPr}</ExternalLink>
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-            </DescriptionList>
-          </StackItem>
-          <StackItem>
-            <Title headingLevel="h3" size="md">
-              Environments
-            </Title>
-            <Stack hasGutter>
-              {groups.map((group) => (
-                <StackItem key={group}>
-                  <Title headingLevel="h4" size="md">
-                    {group}
-                  </Title>
-                  <DescriptionList isCompact isHorizontal>
-                    {detail.environments
-                      .filter((env) => env.group === group)
-                      .map((env) => (
-                        <DescriptionListGroup key={env.instance}>
-                          <DescriptionListTerm>
-                            <Button
-                              aria-label={`Open ${env.instance} on Fleet Map`}
-                              component="a"
-                              href="#"
-                              isInline
-                              variant="link"
-                            >
-                              {env.instance}
-                            </Button>
-                          </DescriptionListTerm>
-                          <DescriptionListDescription>
-                            <StageStatus cell={env.cell} />
-                            {env.history ? (
-                              <PromotionHistory attempts={env.history} />
-                            ) : null}
-                          </DescriptionListDescription>
-                        </DescriptionListGroup>
-                      ))}
-                  </DescriptionList>
-                </StackItem>
+            <StackItem>
+              <ProgressStepper
+                aria-label={`Delivery stages of ${name}`}
+                isVertical
+              >
+                {STAGES.map((stage, i) => {
+                  const cell = change.stages[stage.key] ?? {
+                    state: "unknown" as const,
+                  };
+                  const arrival =
+                    i > 0 && cell.state === "not-started"
+                      ? row?.progress.cells[i - 1]?.time
+                      : undefined;
+                  return (
+                    <ProgressStep
+                      description={
+                        <StageStep
+                          cell={
+                            arrival
+                              ? { ...cell, primary: `about ${arrival}` }
+                              : cell
+                          }
+                          envs={detail?.environments.filter(
+                            (env) => env.group === stage.label,
+                          )}
+                          openWhereToLook={openWhereToLook}
+                          stageKey={stage.key}
+                        />
+                      }
+                      icon={
+                        <span className="pf-v6-u-font-size-xs">{i + 1}</span>
+                      }
+                      id={`${change.shortSha}-${stage.key}`}
+                      isCurrent={
+                        cell.state === "running" || cell.state === "waiting"
+                      }
+                      key={stage.key}
+                      titleId={`${change.shortSha}-${stage.key}-title`}
+                      variant={STEP_VARIANT[cell.state]}
+                    >
+                      {stage.label}
+                    </ProgressStep>
+                  );
+                })}
+              </ProgressStepper>
+            </StackItem>
+            {detail ? (
+              <StackItem>
+                <PanelDetails detail={detail} />
+              </StackItem>
+            ) : null}
+          </Stack>
+        </CardBody>
+      </Card>
+    </li>
+  );
+}
+
+// FLT-DLV-03: every change on main, newest first, side by side. Only the
+// strip scrolls sideways.
+// FLT-DLV-25: the Shipped release-by-hub-cluster matrix (SDLC-VIS-11), moved
+// here from the Agent SDLC tab. Rows expand to their issues, which link to GitHub.
+function ShippedCard() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          <Title headingLevel="h2" size="lg">
+            Shipped
+          </Title>
+        </CardTitle>
+      </CardHeader>
+      <CardBody>
+        <Table aria-label="Shipped" variant="compact">
+          <Thead>
+            <Tr>
+              <Th>Bundle</Th>
+              {SHIPPED_HUBS.map((hub) => (
+                <Th key={hub}>{hub}</Th>
               ))}
-            </Stack>
-          </StackItem>
-          <StackItem>
-            {/* FLT-DLV-11: the first bundle on the Fleet Map, and its Shipped
-                row in Agent SDLC (shown because this bundle is locked). */}
-            <ActionList isVertical>
-              <ActionListItem>
-                <Button component="a" href="#" variant="secondary">
-                  Show bundle on Fleet Map
-                </Button>
-              </ActionListItem>
-              <ActionListItem>
-                <Button component="a" href="#" variant="secondary">
-                  Show bundle in Agent SDLC
-                </Button>
-              </ActionListItem>
-            </ActionList>
-          </StackItem>
-        </Stack>
-      </DrawerPanelBody>
-    </DrawerPanelContent>
+              <Th>Contents</Th>
+            </Tr>
+          </Thead>
+          <Tbody>
+            {SHIPPED_ROWS.map((row) => (
+              <Tr key={row.alias ?? "unreleased"}>
+                <Td dataLabel="Bundle">
+                  {row.alias ? (
+                    <Button component="a" href="#" isInline variant="link">
+                      <BundleName alias={row.alias} />
+                    </Button>
+                  ) : (
+                    "Unreleased"
+                  )}
+                </Td>
+                {SHIPPED_HUBS.map((hub, i) => (
+                  <Td dataLabel={hub} key={hub}>
+                    {row.current[i] ? (
+                      <>
+                        <StageStateIcon state="passed" /> current
+                      </>
+                    ) : (
+                      "-"
+                    )}
+                  </Td>
+                ))}
+                <Td dataLabel="Contents">{row.contents}</Td>
+              </Tr>
+            ))}
+          </Tbody>
+        </Table>
+      </CardBody>
+    </Card>
+  );
+}
+
+function ChangeStrip({
+  fixture,
+  selectedSha,
+  openWhereToLook,
+}: {
+  fixture: DeliveryFixture;
+  selectedSha?: string;
+  openWhereToLook: boolean;
+}) {
+  const rows = new Map(fixture.summary.map((r) => [r.shortSha, r]));
+  const details: Record<string, ChangeDetail> = {
+    [SELECTED_SHA]: SELECTED_DETAIL,
+    [RETRIED_SHA]: RETRIED_DETAIL,
+  };
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          <Title headingLevel="h2" size="lg">
+            Changes on main
+          </Title>
+        </CardTitle>
+      </CardHeader>
+      <CardBody>
+        <ol
+          aria-label="Changes on main, newest first"
+          className={styles.strip}
+          tabIndex={0}
+        >
+          {fixture.changes.map((change) => (
+            <ChangePanel
+              change={change}
+              detail={details[change.sha]}
+              key={change.sha}
+              openWhereToLook={
+                openWhereToLook &&
+                Object.values(change.stages).some((c) => c.overdue)
+              }
+              row={rows.get(change.shortSha)}
+              selected={change.sha === selectedSha}
+            />
+          ))}
+        </ol>
+      </CardBody>
+    </Card>
   );
 }
 
 function PageHeader({ asOf }: { asOf?: string }) {
   return (
     <Flex
-      alignItems={{ default: "alignItemsFlexStart" }}
+      alignItems={{ default: "alignItemsCenter" }}
       justifyContent={{ default: "justifyContentSpaceBetween" }}
     >
       <FlexItem>
         <Content>
-          <Title headingLevel="h1" size="2xl">
-            Delivery
-          </Title>
-          <Content component="p">
-            Follow each change on main from merge, through build and release, to
-            every environment.
-          </Content>
           {asOf ? (
             <Content className="pf-v6-u-text-color-subtle" component="small">
               Data as of {asOf}
@@ -942,10 +1064,14 @@ function LoadedBody({
         <PipelineNowCard now={fixture.pipelineNow} />
       </StackItem>
       <StackItem>
-        <NowAndNext fixture={fixture} openWhereToLook={openWhereToLook} />
+        <ShippedCard />
       </StackItem>
       <StackItem>
-        <ChangeTable changes={fixture.changes} selectedSha={selectedSha} />
+        <ChangeStrip
+          fixture={fixture}
+          openWhereToLook={openWhereToLook}
+          selectedSha={selectedSha}
+        />
       </StackItem>
     </Stack>
   );
@@ -982,34 +1108,19 @@ function Body({ state }: { state: DeliveryState }) {
         </Alert>
       );
     case "change-selected":
+      // FLT-DLV-14: the `change` parameter scrolls to and selects a panel.
       return (
-        <Drawer isExpanded isInline>
-          <DrawerContent
-            panelContent={<ChangeDetails detail={SELECTED_DETAIL} />}
-          >
-            <DrawerContentBody>
-              <LoadedBody
-                fixture={FIXTURES["change-selected"]}
-                selectedSha={SELECTED_SHA}
-              />
-            </DrawerContentBody>
-          </DrawerContent>
-        </Drawer>
+        <LoadedBody
+          fixture={FIXTURES["change-selected"]}
+          selectedSha={SELECTED_SHA}
+        />
       );
     case "promotion-retried":
       return (
-        <Drawer isExpanded isInline>
-          <DrawerContent
-            panelContent={<ChangeDetails detail={RETRIED_DETAIL} />}
-          >
-            <DrawerContentBody>
-              <LoadedBody
-                fixture={FIXTURES["promotion-retried"]}
-                selectedSha={RETRIED_SHA}
-              />
-            </DrawerContentBody>
-          </DrawerContent>
-        </Drawer>
+        <LoadedBody
+          fixture={FIXTURES["promotion-retried"]}
+          selectedSha={RETRIED_SHA}
+        />
       );
     case "release-overdue":
       // FLT-DLV-20: the Where to look popup is open on the Overdue Release.

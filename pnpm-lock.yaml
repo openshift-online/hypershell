@@ -159,6 +159,12 @@ importers:
       '@axe-core/playwright':
         specifier: 4.12.1
         version: 4.12.1(playwright-core@1.61.1)
+      '@dicebear/core':
+        specifier: 10.7.0
+        version: 10.7.0
+      '@dicebear/styles':
+        specifier: 10.6.0
+        version: 10.6.0
       '@eslint/js':
         specifier: 9.39.5
         version: 9.39.5
@@ -340,6 +346,12 @@ importers:
 
   packages/fleet-dashboard-ui:
     dependencies:
+      '@dicebear/core':
+        specifier: 10.7.0
+        version: 10.7.0
+      '@dicebear/styles':
+        specifier: 10.6.0
+        version: 10.6.0
       '@patternfly/react-core':
         specifier: 6.6.1
         version: 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -962,6 +974,13 @@ packages:
   '@csstools/css-tokenizer@4.0.1':
     resolution: {integrity: sha512-bPlN9S9O1A0euCpEWE4qnvB5YDuyYVsUTrxSgmAM1Is0j4tICHoVyOVAXfWMP/kS9ZrjvyIXWV2PmomiAXXqOw==}
     engines: {node: '>=20.19.0'}
+
+  '@dicebear/core@10.7.0':
+    resolution: {integrity: sha512-JUOzKOd8RUByJJo8ZL+C7YE/pvEsWewfpbWUmR8OIQZWv/PvUQHnohdevySC3icyyxe6EIU/8B/rQgA42us1QA==}
+    engines: {node: '>=22.0.0'}
+
+  '@dicebear/styles@10.6.0':
+    resolution: {integrity: sha512-KhxbEVI+z8TaenX58+ZhIRFBt7adggu/F+8g6ZYLu43H2/lgLuWA3Kg8vHBrCVWdfTTTt1p2wUhQomIkkypTuQ==}
 
   '@emnapi/core@1.11.0':
     resolution: {integrity: sha512-l9Oo58x0HOP5znGzVhYW9U3e5wVuA4LAZU2AGezTmkhO1CgQRFDhDg4nneHsu/t3WniXg9QrG2nIXL/ZS8ln8Q==}
@@ -5398,6 +5417,10 @@ snapshots:
       css-tree: 3.2.1
 
   '@csstools/css-tokenizer@4.0.1': {}
+
+  '@dicebear/core@10.7.0': {}
+
+  '@dicebear/styles@10.6.0': {}
 
   '@emnapi/core@1.11.0':
     dependencies:

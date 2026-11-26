@@ -88,14 +88,12 @@ describe("reduceRoute", () => {
     expect(state.bundle).toBe("sha256:xyz");
   });
 
-  it("toggles an expanded shipped matrix row by seed (FLT-NAV-13)", () => {
-    const open = reduceRoute(DEFAULT_ROUTE, {
-      type: "sdlcShippedRow",
-      seed: "v9",
-    });
-    expect(open.sdlc.shippedRow).toBe("v9");
-    const closed = reduceRoute(open, { type: "sdlcShippedRow", seed: "v9" });
-    expect(closed.sdlc.shippedRow).toBeNull();
+  // Verifies: FLT-DLV-25.02
+  it("toggles an expanded Shipped row by seed on the Delivery tab (FLT-NAV-13)", () => {
+    const open = reduceRoute(DEFAULT_ROUTE, { type: "shippedRow", seed: "v9" });
+    expect(open.delivery.shippedRow).toBe("v9");
+    const closed = reduceRoute(open, { type: "shippedRow", seed: "v9" });
+    expect(closed.delivery.shippedRow).toBeNull();
   });
 
   it("closes the whole SDLC panel", () => {
@@ -232,17 +230,6 @@ describe("reduceRoute", () => {
     expect(state.sdlc.card).toBe(42);
     expect(state.sdlc.escalations).toBe(false);
   });
-
-  it("selecting a shipped issue clears a board card and vice versa", () => {
-    const card = reduceRoute(DEFAULT_ROUTE, { type: "sdlcCard", card: 1 });
-    const shipped = reduceRoute(card, {
-      type: "sdlcShipped",
-      shipped: { issue: 2, version: "v1" },
-    });
-    expect(shipped.sdlc.card).toBeNull();
-    expect(shipped.sdlc.shipped).toBe(2);
-    expect(shipped.sdlc.shippedVersion).toBe("v1");
-  });
 });
 
 describe("isReplaceAction (FLT-NAV-06)", () => {
@@ -271,15 +258,6 @@ describe("Delivery actions (FLT-DLV-11, FLT-DLV-14)", () => {
     );
     const closed = apply(open, { type: "deliverySelectChange", sha: SHA });
     expect(closed.delivery.change).toBeNull();
-  });
-
-  it("opens a locked bundle's Shipped row in Agent SDLC", () => {
-    const next = apply(onDelivery, {
-      type: "openBundleInSdlc",
-      seed: "glassy-larch",
-    });
-    expect(next.tab).toBe("sdlc");
-    expect(next.sdlc.shippedRow).toBe("glassy-larch");
   });
 
   it("opens an environment's node on the Fleet Map", () => {

@@ -15,10 +15,19 @@ const trainLimit = 10
 
 // Next event kinds (FLT-DLV-23). The UI owns the wording.
 const (
-	nextPublished = "bundle-published"
-	nextLocked    = "locked"
+	nextExpecting = "expecting-bundle"
+	nextRenovate  = "renovate"
 	nextRestart   = "restart"
 	nextPromote   = "promote"
+)
+
+// Renovate states of a published bundle that is not locked yet (FLT-DLV-07,
+// FLT-DLV-23).
+const (
+	renovateWaiting = "waiting"
+	renovateRunning = "running"
+	renovatePassed  = "passed"
+	renovateFailed  = "failed"
 )
 
 // DeliveryTrainBundle is one bundle of the train (FLT-DLV-22).
@@ -94,11 +103,16 @@ type DeliveryNowCheck struct {
 	PR        int    `json:"pr,omitempty"`
 }
 
-// DeliveryNowPR is the open bundle update pull request.
+// DeliveryNowPR is the open Renovate pull request (FLT-DLV-07).
 type DeliveryNowPR struct {
-	Number int    `json:"number"`
-	URL    string `json:"url,omitempty"`
-	Checks string `json:"checks,omitempty"`
+	Number    int    `json:"number"`
+	URL       string `json:"url,omitempty"`
+	Checks    string `json:"checks,omitempty"`
+	CreatedAt string `json:"createdAt,omitempty"`
+	// Digest and Version name the bundle the pull request proposes, read from
+	// the release lock at its head.
+	Digest  string `json:"digest,omitempty"`
+	Version string `json:"version,omitempty"`
 }
 
 // DeliveryEnvNow is one environment now.
@@ -133,6 +147,13 @@ type DeliveryNextEvent struct {
 	Envs       []string `json:"envs,omitempty"`
 	// After names the environments whose gates must pass first (promote).
 	After []string `json:"after,omitempty"`
+	// Changes are the changes that will ride the expected bundle
+	// (expecting-bundle).
+	Changes []DeliveryCommitRef `json:"changes,omitempty"`
+	// State is the Renovate state of the bundle, and PR its pull request when
+	// one proposes it (renovate).
+	State string `json:"state,omitempty"`
+	PR    int    `json:"pr,omitempty"`
 	// At is the expected time; empty when estimates do not allow one.
 	At string `json:"at,omitempty"`
 }
@@ -527,7 +548,10 @@ func buildNow(in deliveryInput, pl placement, groups []envGroup, est map[string]
 		}
 	}
 	if in.bundlePR != nil {
-		now.BundlePR = &DeliveryNowPR{Number: in.bundlePR.Number, URL: in.bundlePR.URL, Checks: in.bundlePR.Checks}
+		now.BundlePR = &DeliveryNowPR{Number: in.bundlePR.Number, URL: in.bundlePR.URL, Checks: in.bundlePR.Checks, CreatedAt: in.bundlePR.CreatedAt, Digest: in.bundlePRDig}
+		if bi, ok := pl.digests[in.bundlePRDig]; ok {
+			now.BundlePR.Version = in.bundles[bi].Version
+		}
 	}
 	for j, c := range in.commits {
 		runs, ok := in.checks[c.SHA]
@@ -600,25 +624,8 @@ func buildNow(in deliveryInput, pl placement, groups []envGroup, est map[string]
 	}
 
 	// Next events, in order (FLT-DLV-23).
-	for _, tb := range train {
-		if tb.Inferred {
-			comps := make([]string, 0, len(tb.Changed))
-			for _, c := range tb.Changed {
-				comps = append(comps, c.Component)
-			}
-			now.Next = append(now.Next, DeliveryNextEvent{Kind: nextPublished, Components: comps, At: tb.ExpectedAt})
-		}
-	}
-	for _, l := range landings(in, train, est) {
-		if !train[l.train].Locked {
-			ev := DeliveryNextEvent{Kind: nextLocked, Components: l.components, Version: l.version, Digest: l.digest}
-			if l.known {
-				ev.At = fmtTime(maxTime(l.lockAt, in.now))
-			}
-			now.Next = append(now.Next, ev)
-			break
-		}
-	}
+	now.Next = append(now.Next, expectingBundles(in, changes)...)
+	now.Next = append(now.Next, renovateEvents(in, train, est)...)
 	for _, key := range in.promo.OrderOrNil() {
 		if l, ok := rs[key]; ok {
 			now.Next = append(now.Next, DeliveryNextEvent{Kind: nextRestart, Components: l.components, Version: l.version, Digest: l.digest, Envs: []string{key}, At: fmtTime(l.lockAt)})
@@ -757,4 +764,127 @@ func envRunningFor(ch *DeliveryChange, key string) bool {
 		}
 	}
 	return false
+}
+
+// expectingBundles are the expected bundles of the listed changes whose rebuilt
+// components no published bundle contains yet (FLT-DLV-23). Changes whose
+// failed builds a later build superseded ride that build's bundle, so they
+// share its line. The time is now plus the remaining Build, Policy check, and
+// Release estimates; it is omitted when one is unknown.
+func expectingBundles(in deliveryInput, changes []DeliveryChange) []DeliveryNextEvent {
+	var out []DeliveryNextEvent
+	index := map[string]int{}
+	// Oldest change first: its bundle comes first.
+	for ci := len(changes) - 1; ci >= 0; ci-- {
+		ch := changes[ci]
+		if ch.Delivered || ch.Bundle != nil || len(ch.Builds) == 0 || len(ch.Stages) < 4 {
+			continue
+		}
+		build, release := ch.Stages[1], ch.Stages[3]
+		switch {
+		case build.State == StageFailed || build.State == StageNotNeeded || build.State == StageUnknown:
+			continue
+		case release.State == StageNotNeeded || release.State == StageUnknown || release.Reason == reasonPartlyReleased:
+			continue
+		}
+		key := ch.SHA
+		if build.RebuiltIn != nil {
+			key = build.RebuiltIn.SHA
+		}
+		at, known := remainingToBundle(ch.Stages[1:4], in.now)
+		ref := DeliveryCommitRef{SHA: ch.SHA, ShortSHA: ch.ShortSHA, PR: ch.PR}
+		if k, ok := index[key]; ok {
+			ev := &out[k]
+			ev.Changes = append(ev.Changes, ref)
+			for _, c := range build.Components {
+				if !slices.Contains(ev.Components, c) {
+					ev.Components = append(ev.Components, c)
+				}
+			}
+			if !known {
+				ev.At = ""
+			} else if ev.At != "" && fmtTime(at) > ev.At {
+				ev.At = fmtTime(at)
+			}
+			continue
+		}
+		ev := DeliveryNextEvent{Kind: nextExpecting, Changes: []DeliveryCommitRef{ref}, Components: slices.Clone(build.Components)}
+		if known {
+			ev.At = fmtTime(at)
+		}
+		index[key] = len(out)
+		out = append(out, ev)
+	}
+	return out
+}
+
+// remainingToBundle is when the stages up to Release are expected to finish:
+// now plus the rest of the current stage and the estimates of the later ones.
+func remainingToBundle(stages []DeliveryStage, now time.Time) (time.Time, bool) {
+	var rest time.Duration
+	for _, s := range stages {
+		switch s.State {
+		case StagePassed, StageNotNeeded:
+			continue
+		}
+		if s.EstimateSeconds == nil {
+			return time.Time{}, false
+		}
+		est := secs(*s.EstimateSeconds)
+		if s.State == StageRunning || s.State == StageWaiting {
+			start, ok := parseTime(s.StartedAt)
+			if !ok {
+				return time.Time{}, false
+			}
+			rest += max(0, start.Add(est).Sub(now))
+			continue
+		}
+		rest += est
+	}
+	return now.Add(rest), true
+}
+
+// renovateEvents are the published bundles newer than the newest locked one,
+// each with its Renovate state and expected lock time: the publication time,
+// or the opening time of the pull request that proposes it, plus the Renovate
+// estimate (FLT-DLV-07, FLT-DLV-23).
+func renovateEvents(in deliveryInput, train []DeliveryTrainBundle, est map[string]PhaseEstimate) []DeliveryNextEvent {
+	newestLocked := -1
+	for i, tb := range train {
+		if tb.Locked {
+			newestLocked = i
+		}
+	}
+	e, okE := est[stageGitOps]
+	var out []DeliveryNextEvent
+	for i := newestLocked + 1; i < len(train); i++ {
+		tb := train[i]
+		if tb.Inferred || tb.Locked || tb.Digest == "" {
+			continue
+		}
+		ev := DeliveryNextEvent{Kind: nextRenovate, Version: tb.Version, Digest: tb.Digest, State: renovateWaiting}
+		for _, c := range tb.Changed {
+			ev.Components = append(ev.Components, c.Component)
+		}
+		base := tb.PublishedAt
+		if pr := in.bundlePR; pr != nil && in.bundlePRDig == tb.Digest {
+			ev.PR = pr.Number
+			switch pr.Checks {
+			case "failed":
+				ev.State = renovateFailed
+			case "passed":
+				ev.State = renovatePassed
+			default:
+				ev.State = renovateRunning
+			}
+			if pr.CreatedAt != "" {
+				base = pr.CreatedAt
+			}
+		}
+		if t, ok := parseTime(base); ok && okE && ev.State != renovateFailed {
+			ev.At = fmtTime(maxTime(t.Add(secs(e.MedianSeconds)), in.now))
+		}
+		out = append(out, ev)
+	}
+	return out
 }

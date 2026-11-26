@@ -17,11 +17,13 @@ change cannot tell, from Glass, whether it is building, waiting, failed, or
 already running in an environment.
 
 This specification adds a **Delivery** tab. It follows each application change
-from merge to the last promotion environment as one row of stages. For every
-change in flight, it says what is happening now and what should happen next,
-with estimates and arrival times taken from recent history. Above the changes,
-a **Pipeline now** panel (FLT-DLV-23) states the situation at this moment:
-the head of both repositories, what is in flight, and what should happen next.
+from merge to the last promotion environment as one panel with a progress
+stepper, and lays the panels side by side, newest first. For every change in
+flight, each step says what is happening now and when the next steps should
+finish, with estimates and arrival times taken from recent history. Above the
+changes, a **Pipeline now** panel (FLT-DLV-23) states the situation at this
+moment: the head of both repositories, what is in flight, and what should
+happen next, including bundles still expected and bundles waiting on Renovate.
 It reads only sources the dashboard can already reach, with credentials it
 already holds.
 
@@ -46,8 +48,11 @@ tab can say what really runs where.
 | Rebuilt components | The bundled components whose build check run on the change's commit exists (FLT-DLV-05), whatever its result. |
 | First bundle | The oldest bundle that contains the change (FLT-DLV-06). |
 | Contains | A bundle contains a change when it is the change's first bundle or any newer bundle. |
-| Phase | One stage after Merged, as one step of the pipeline: Build, Policy check, Release, GitOps update, then one phase per environment group. |
-| Run | One execution of a phase: one component build or policy check run, one bundle's release, one bundle's GitOps update, or one bundle's promotion through an environment group. |
+| Phase | One stage after Merged, as one step of the pipeline: Build, Policy check, Release, Renovate, then one phase per environment group. |
+| Renovate pull request | The automated pull request in `FD_GITHUB_REPO` from branch `FD_DELIVERY_RELEASE_PR_BRANCH` that moves a published bundle into the GitOps release lock. Renovate keeps at most one open and rewrites it to the newest bundle (FLT-DLV-07). |
+| Change panel | The panel that shows one change: its stepper and its details (FLT-DLV-11). |
+| Stage cell | One step of a change panel's stepper. The scenarios below call it the stage's cell. |
+| Run | One execution of a phase: one component build or policy check run, one bundle's release, one bundle's Renovate, or one bundle's promotion through an environment group. |
 | Estimate | The median duration of the last 5 completed runs of a phase (FLT-DLV-09). |
 | Slowest | The longest duration among the same last 5 completed runs. |
 | Environment group | The promotion environments that share one `delivery.hypershell.app/env` label value (for example the int hub and its spokes). |
@@ -65,7 +70,7 @@ tab can say what really runs where.
 | Merged | Application repository commits API | `FD_UPSTREAM_TOKEN_FILE` (existing) |
 | Build, Policy check | Check runs on the change's commit, reported by Konflux Pipelines as Code. The Build popup also reads the image check run (`FD_DELIVERY_IMAGE_CHECK`) from the same list, and its annotations when it failed. | `FD_UPSTREAM_TOKEN_FILE` (existing) |
 | Release | Locked bundles: the shared bundle source (release lock and compare windows). Pending bundles only: tag list and `bundle.json` of `FD_DELIVERY_BUNDLE_REPOSITORY` (public registry API). Downloads: the matching application-repository GitHub release. | existing tokens; none for the public registry |
-| GitOps update | Pull requests and release-lock history of `FD_GITHUB_REPO` | `FD_GITHUB_TOKEN_FILE` (existing) |
+| Renovate | Pull requests and release-lock history of `FD_GITHUB_REPO` | `FD_GITHUB_TOKEN_FILE` (existing) |
 | Environment groups | The existing promotion source (`/api/promotion`): environments, active and proposed releases, gates, analysis | existing BFF service account |
 
 The step between a passed policy check and a published bundle (the Konflux
@@ -82,16 +87,20 @@ the release GitHub App settings from settings; the dashboard does not read them.
 Glass SHALL provide a fourth top-level tab, **Delivery**, at path `/delivery`,
 after Fleet Map, Agent SDLC, and E2E Runs. The tab SHALL use the shared Glass
 shell and its tab navigation. Its page surface SHALL have a header region with
-the title "Delivery", a one-sentence description, and a refresh action, and a
-body region with the Pipeline now panel (FLT-DLV-23), the Now and next summary
-(FLT-DLV-10), and the change table (FLT-DLV-03), in that order.
+the time of the data and a refresh action, and no title or description of its
+own, because the selected tab already names the page; and a
+body region with the Pipeline now panel (FLT-DLV-23), the **Shipped** section
+(FLT-DLV-25), and the **Changes on main** strip of change panels (FLT-DLV-03),
+in that order. The tab SHALL NOT
+show a separate Now and next summary: each change panel carries its own state,
+next step, and arrival times (FLT-DLV-10).
 
 #### Scenario: FLT-DLV-01.01 -- Tab reachable by path
 
 - GIVEN an authorized operator
 - WHEN the operator opens `/delivery`
 - THEN Glass SHALL select the Delivery tab
-- AND the page SHALL show the Now and next summary above the change table
+- AND the page SHALL show the Pipeline now panel, then the Shipped section, then the Changes on main strip
 
 #### Scenario: FLT-DLV-01.02 -- Plane not configured
 
@@ -139,26 +148,41 @@ change delivered.
 
 ### Requirement: FLT-DLV-03 -- Stages in a fixed order
 
-Each change SHALL be shown as one table row with one column per stage, in this
-order: **Merged**, **Build**, **Policy check**, **Release**, **GitOps update**,
-then one column per environment group. Environment-group columns SHALL be
-derived at runtime from the promotion payload: groups are ordered by the
-earliest promotion-graph layer of their environments, and each column is
-labelled with the group's label value. The table SHALL be keyboard navigable
-and SHALL be the accessible representation of the pipeline; no information may
-be conveyed only by a graphic.
+Each change SHALL be shown as one change panel (FLT-DLV-11) in the **Changes on
+main** strip. The strip SHALL lay the panels side by side in one row, ordered
+by merge time, newest first, and SHALL scroll sideways to reach older changes.
+Only the strip scrolls sideways; the page SHALL NOT. The strip SHALL be
+reachable and scrollable by keyboard, and SHALL show that more panels exist
+past each edge.
 
-#### Scenario: FLT-DLV-03.01 -- Columns follow the promotion graph
+Each panel SHALL carry a progress stepper (FLT-DLV-19) with one step per
+stage, in this order: **Merged**, **Build**, **Policy check**, **Release**,
+**Renovate**, then one step per environment group. Environment-group steps
+SHALL be derived at runtime from the promotion payload: groups are ordered by
+the earliest promotion-graph layer of their environments, and each step is
+labelled with the group's label value. The stepper SHALL be an ordered list
+whose items state, as text, the stage, its state, and its time; no information
+may be conveyed only by a graphic.
+
+#### Scenario: FLT-DLV-03.01 -- Steps follow the promotion graph
 
 - GIVEN a promotion graph whose roots carry env label `int`, whose next layer carries `stage`, and whose last layer carries `prod`
 - WHEN the Delivery tab renders
-- THEN the environment-group columns SHALL read Int, Stage, Prod in that order
+- THEN each change panel's environment-group steps SHALL read Int, Stage, Prod in that order
 
 #### Scenario: FLT-DLV-03.02 -- New environment group appears without code change
 
 - GIVEN a new promotion environment with a new env label value is added to the promotion strategy
 - WHEN the BFF next refreshes
-- THEN the Delivery tab SHALL show an additional column for that group
+- THEN each change panel SHALL show an additional step for that group
+
+#### Scenario: FLT-DLV-03.03 -- Newest first, scrolling sideways
+
+- GIVEN 30 listed changes
+- WHEN the Changes on main strip renders in a 1280 pixel wide viewport
+- THEN the newest change's panel SHALL be first, at the left
+- AND the strip SHALL scroll sideways to the oldest change
+- AND the page SHALL NOT scroll sideways
 
 ### Requirement: FLT-DLV-04 -- Stage state vocabulary
 
@@ -224,8 +248,8 @@ Policy check SHALL be Not needed with the reason "No component changed", and
 the change SHALL ride with its first bundle.
 
 Builds and policy checks of outside-bundle components SHALL still show in the
-Build and Policy check stages and in the drawer, marked "Ships outside the
-bundle" in the drawer. They SHALL NOT decide bundle containment (FLT-DLV-06).
+Build and Policy check stages and in the change panel, marked "Ships outside
+the bundle" there. They SHALL NOT decide bundle containment (FLT-DLV-06).
 
 **Superseded builds.** An image is built from the whole repository at one
 commit, so a later successful build of a component carries every earlier
@@ -389,26 +413,45 @@ policy check, releasing (inferred), or failed.
 - THEN the Release cell SHALL read Not needed with "Ships outside the bundle"
 - AND it SHALL NOT read "Releasing (inferred)"
 
-### Requirement: FLT-DLV-07 -- GitOps update stage
+### Requirement: FLT-DLV-07 -- Renovate stage
 
-The GitOps update stage SHALL track the change's first bundle into the GitOps
-repository `main` branch. It SHALL be Passed when a commit on `FD_GITHUB_REPO`
-`main` sets the release lock to a bundle that contains the change, showing that
-commit's merge time and pull request. When `FD_DELIVERY_RELEASE_PR_BRANCH` is set
-and an open pull request from that branch proposes a bundle that contains the
-change, the stage SHALL be Running and SHALL show the pull request's required
-check state. When the bundle is published and no such pull request or commit
-exists yet, the stage SHALL be Waiting with "Waiting for the bundle update pull
-request". When `FD_DELIVERY_RELEASE_PR_BRANCH` is not set, the stage SHALL go
-from Waiting to Passed without a Running state.
+The Renovate stage SHALL track the change's first bundle into the GitOps
+repository `main` branch through the Renovate pull request. Renovate runs every
+few minutes, keeps at most one release pull request open, and rewrites that
+pull request to the newest published bundle. The stage SHALL read which bundle
+the pull request proposes from the release lock at its head commit, not from
+its title. The stage SHALL be:
 
-#### Scenario: FLT-DLV-07.01 -- Bundle pull request open
+- **Waiting**, with "Waiting for Renovate", when the change's first bundle is
+  published and no open pull request proposes a bundle that contains the
+  change (none is open, or the open one proposes an older bundle). Its time is
+  the elapsed time since the bundle was published.
+- **Running**, with "PR #n open" and the pull request's required check state
+  (running or passed), when the open pull request proposes a bundle that
+  contains the change. Its time is the time the pull request opened.
+- **Failed**, with "PR #n checks failed", when that pull request's head checks
+  failed.
+- **Passed**, when a commit on `FD_GITHUB_REPO` `main` sets the release lock to
+  a bundle that contains the change, showing that commit's merge time and
+  pull request.
+
+When `FD_DELIVERY_RELEASE_PR_BRANCH` is not set, the stage SHALL go from
+Waiting to Passed without a Running or Failed state.
+
+#### Scenario: FLT-DLV-07.01 -- Renovate pull request open
 
 - GIVEN `FD_DELIVERY_RELEASE_PR_BRANCH` is set
-- AND an open pull request from that branch proposes bundle B
+- AND an open pull request from that branch, opened at 19:10, proposes bundle B
 - AND B contains change C
-- WHEN C's row renders
-- THEN the GitOps update cell SHALL show Running with the pull request number and its check state
+- WHEN C's panel renders
+- THEN the Renovate step SHALL show Running with "PR #2951 open", its check state, and "opened 19:10"
+
+#### Scenario: FLT-DLV-07.02 -- Bundle published, Renovate not run yet
+
+- GIVEN change C's first bundle B was published at 19:09
+- AND the open Renovate pull request proposes an older bundle, or none is open
+- WHEN C's panel renders at 19:12
+- THEN the Renovate step SHALL show Waiting with "Waiting for Renovate" and "3 min"
 
 ### Requirement: FLT-DLV-08 -- Environment-group stages
 
@@ -510,7 +553,7 @@ ride one bundle; counting each of them would weight one slow bundle many times.
 | Build | one component's build check run, per component | the change's merge | the check run's completion |
 | Policy check | one component's policy check run, per component | that component's build completion on the same commit | the check run's completion |
 | Release | one bundle | the latest policy check completion on the bundle's `manifests.git.revision` commit | the bundle's publication |
-| GitOps update | one bundle | the bundle's publication | the merge of the first release-lock commit for that bundle |
+| Renovate | one bundle | the bundle's publication | the merge of the first release-lock commit for that bundle |
 | Environment | one passed promotion in one environment | the promotion's merge on the environment branch | its gates' pass: the latest, across gates, of each gate's first successful completion |
 
 Only successful runs count. An environment phase ends when its gates pass, not
@@ -552,7 +595,7 @@ listed change, so the UI needs no per-component lookup.
 #### Scenario: FLT-DLV-09.03 -- One sample per bundle
 
 - GIVEN 6 changes that all rode bundle B
-- WHEN the BFF samples the GitOps update phase
+- WHEN the BFF samples the Renovate phase
 - THEN bundle B SHALL contribute one run
 
 #### Scenario: FLT-DLV-09.04 -- Slowest rebuilt component decides
@@ -576,12 +619,9 @@ listed change, so the UI needs no per-component lookup.
 - THEN that promotion SHALL NOT contribute a run
 - AND a health check re-posted after its pass SHALL NOT make a promotion a re-run
 
-### Requirement: FLT-DLV-10 -- Now and next summary
+### Requirement: FLT-DLV-10 -- Current step, next step, and arrival
 
-Above the change table, the tab SHALL show a **Now and next** summary with one
-row per undelivered change, newest first, at most 3 rows, and a link to the full
-table when more exist. Each row SHALL name the change (short SHA, pull request,
-title) and SHALL state:
+Each undelivered change's panel SHALL state, at its top:
 
 - **Now:** the earliest stage that is not Passed or Not needed, its state, its
   elapsed time, and its estimate when known.
@@ -593,8 +633,11 @@ title) and SHALL state:
   state what restarts the pipeline instead (for a failed build: "Re-run the
   failed pipeline, or merge a change to the same component", because component
   builds run only for changes under their own paths).
-- **Arrival:** the progress bar (FLT-DLV-19) and, per environment group, the
-  expected arrival of the change in that group.
+- **Arrival:** per environment group not reached yet, the expected arrival of
+  the change in that group, on that group's step (FLT-DLV-19).
+
+A delivered change's panel SHALL state its delivery time and its total time
+from merge instead.
 
 **Arrival time.** The expected arrival in an environment SHALL be now, plus
 the remaining time of the current phase, plus the estimates of every later
@@ -625,96 +668,82 @@ took a median of 97 minutes (fastest 43). The typical arrival miss was 36
 minutes at merge, 7 minutes once the bundle was published, and under 2 minutes
 in the last environment group.
 
-The summary icon SHALL follow the highest severity among its rows: Failed over
-Overdue over in-progress. When every listed change is delivered, the
-summary SHALL read "Everything on main is delivered" with the newest change's
-delivery time and its total time from merge.
+The panel's heading icon SHALL follow the highest severity among its stages:
+Failed over Overdue over in-progress over delivered.
 
 #### Scenario: FLT-DLV-10.01 -- Change building
 
 - GIVEN change `a15cc91` (#997) has Build Running for 6 minutes with a Build estimate of 10 minutes
 - AND the Policy check estimate is 3 minutes
-- WHEN the summary renders at 15:17
-- THEN the row SHALL read Now "Building control-plane - 6 min, usually 10 min"
+- WHEN its panel renders at 15:17
+- THEN the panel SHALL read Now "Building control-plane - 6 min, usually 10 min"
 - AND Next "Policy check - usually about 15:24"
 
 #### Scenario: FLT-DLV-10.04 -- Arrival range before the bundle is published
 
 - GIVEN a change whose Build has been Running for 4 minutes with estimate 10 and slowest 15 minutes
-- AND estimates Policy check 5, Release 30, GitOps update 10, Int 20 minutes
-- AND slowest values Policy check 8, Release 45, GitOps update 15, Int 30 minutes
-- WHEN the summary renders at 12:00
-- THEN the Int arrival SHALL read from 12:57 to 13:49
+- AND estimates Policy check 5, Release 30, Renovate 10, Int 20 minutes
+- AND slowest values Policy check 8, Release 45, Renovate 15, Int 30 minutes
+- WHEN its panel renders at 12:00
+- THEN the Int step SHALL read from 12:57 to 13:49
 - BECAUSE the early end is 0.8 x (6 + 5 + 30 + 10 + 20) = 56.8 minutes and the late end is 11 + 8 + 45 + 15 + 30 = 109 minutes
 
 #### Scenario: FLT-DLV-10.05 -- One arrival time after publication
 
-- GIVEN a change whose bundle is published and whose GitOps update has been Waiting for 4 minutes with estimate 10 minutes
+- GIVEN a change whose bundle is published and whose Renovate stage has been Waiting for 4 minutes with estimate 10 minutes
 - AND the Int estimate is 20 minutes
-- WHEN the summary renders at 12:00
-- THEN the Int arrival SHALL read 12:26
+- WHEN its panel renders at 12:00
+- THEN the Int step SHALL read 12:26
 
 #### Scenario: FLT-DLV-10.06 -- Overdue withdraws the arrival
 
 - GIVEN a change whose Release stage is Overdue
-- WHEN the summary renders
-- THEN no environment group SHALL show an arrival time for that change
-- AND the Release cell SHALL offer the "Where to look" popup (FLT-DLV-20)
+- WHEN its panel renders
+- THEN no environment group step SHALL show an arrival time for that change
+- AND the Release step SHALL offer the "Where to look" popup (FLT-DLV-20)
 
 #### Scenario: FLT-DLV-10.07 -- A newer bundle will restart the gate
 
 - GIVEN change C is in Int and the Int hub's release analysis has run for 17 minutes with estimate 25 minutes
 - AND agent-runtime's build finished 4 minutes ago and its bundle is expected on GitOps `main` in 8 minutes
-- WHEN C's summary row renders
+- WHEN C's panel renders
 - THEN Next SHALL read "Restarts when the agent-runtime bundle lands"
 - AND the Stage arrival SHALL start from that bundle's expected arrival in Int, not from the running analysis
 
-#### Scenario: FLT-DLV-10.02 -- Nothing in flight
+#### Scenario: FLT-DLV-10.02 -- A delivered change
 
-- GIVEN every listed change is delivered
-- WHEN the summary renders
-- THEN it SHALL read "Everything on main is delivered" with the newest change's delivery time and time from merge
+- GIVEN change C merged at 18:42 and was delivered at 20:56
+- WHEN C's panel renders
+- THEN it SHALL read "Delivered 20:56 - 2 h 14 min from merge"
 
 #### Scenario: FLT-DLV-10.03 -- Failure takes precedence
 
-- GIVEN one undelivered change has a Failed Build and another has an Overdue GitOps update
-- WHEN the summary renders
-- THEN the summary heading SHALL use the danger icon
+- GIVEN a change with a Failed Build and an Overdue Renovate stage
+- WHEN its panel renders
+- THEN the panel heading SHALL use the danger icon
 
-### Requirement: FLT-DLV-11 -- Change details drawer
+### Requirement: FLT-DLV-11 -- Change panel
 
-Selecting a change SHALL open a details drawer that lists every stage with its
-state, start and end time, and duration; the per-component builds and policy
-checks with links to their GitHub check-run pages; the first bundle with its
-alias, digest, publication time, and a link to its GitHub release (or "Downloads
-not published yet"); the GitOps update pull request link; and, per environment
-group, each environment with its state and a link that opens the Fleet Map with
-that node selected, followed by that environment's promotion history for the
-change (FLT-DLV-18). The drawer SHALL offer a link that opens the Fleet Map with
-the change's first bundle selected (`bundle` parameter, FLT-NAV-08). When the
-first bundle is locked, the drawer SHALL also offer a link that opens the Agent
-SDLC tab with that bundle's Shipped row expanded (`shiprow` parameter, the
-bundle seed, SDLC-VIS-11). A pending bundle has no Shipped row yet, so that
-link SHALL be omitted for it.
+Each change panel SHALL show, without a click: the short SHA, pull request,
+title, author, and links to the pull request and the commit; the Now, Next,
+and arrival lines (FLT-DLV-10); the stepper (FLT-DLV-19); the per-component
+builds and policy checks with links to their GitHub check-run pages; the first
+bundle with its identicon and alias (FLT-DLV-24), version, digest, publication
+time, the time it was locked, and a link to its GitHub release (or "Downloads
+not published yet"); the Renovate pull request with its opening and merge
+times. The environments SHALL appear only on their group's step of the
+stepper (FLT-DLV-19), not in a separate list. The panel SHALL show all its details at
+full height, with no scroll inside the panel; the strip SHALL grow to the
+tallest panel. A panel SHALL have no border of its own; only the panel the
+`change` parameter selects (FLT-DLV-14) SHALL carry an outline. The panel SHALL
+NOT offer buttons that open its bundle on the Fleet Map or in another tab.
 
-#### Scenario: FLT-DLV-11.01 -- From a change to its bundle on the map
+#### Scenario: FLT-DLV-11.04 -- Every bundle fact carries a time
 
-- GIVEN the drawer is open for change C whose first bundle is B
-- WHEN the operator follows "Show bundle on Fleet Map"
-- THEN the Fleet Map SHALL open with bundle B selected
-
-#### Scenario: FLT-DLV-11.02 -- From a change to its Shipped row
-
-- GIVEN the drawer is open for change C whose first bundle B is locked
-- WHEN the operator follows "Show bundle in Agent SDLC"
-- THEN the Agent SDLC tab SHALL open with B's Shipped row expanded
-
-#### Scenario: FLT-DLV-11.03 -- No Shipped link for a pending bundle
-
-- GIVEN the drawer is open for change C whose first bundle is pending
-- WHEN the drawer renders
-- THEN it SHALL show the Fleet Map link
-- AND it SHALL NOT show the Agent SDLC link
+- GIVEN change C's first bundle B, published at 19:09 and locked at 19:11
+- WHEN C's panel renders
+- THEN the bundle version line SHALL read "v20261125 - published 19:09"
+- AND the locked line SHALL read "Locked 19:11"
 
 ### Requirement: FLT-DLV-12 -- Delivery endpoint and settings
 
@@ -751,7 +780,7 @@ immutable. Pending-bundle compare results SHALL use the shared compare cache.
 | Setting | Required | Default | Meaning |
 | --- | --- | --- | --- |
 | `FD_DELIVERY_BUNDLE_REPOSITORY` | yes, to enable the plane | none | Registry repository that holds `release-bundle-*` tags. When unset, `/api/delivery` returns `enabled: false`. |
-| `FD_DELIVERY_RELEASE_PR_BRANCH` | no | none | Head branch of the automated bundle update pull request in `FD_GITHUB_REPO`. When unset, the GitOps update stage has no Running state. |
+| `FD_DELIVERY_RELEASE_PR_BRANCH` | no | none | Head branch of the automated bundle update pull request in `FD_GITHUB_REPO`. When unset, the Renovate stage has no Running state. |
 | `FD_DELIVERY_CHECK_APP` | no | `red-hat-konflux` | GitHub App slug whose check runs are builds and policy checks. |
 | `FD_DELIVERY_IMAGE_CHECK` | no | `E2E / Wait for Konflux images` | Name of the check run, from any GitHub App, that waits for the Konflux builds and confirms their images are published. The Build popup shows it (FLT-DLV-20). When empty, the popup omits it. |
 | `FD_DELIVERY_HISTORY_DAYS` | no | `7` | How far back the promotion history may read to hold 5 passed promotions per environment (FLT-DLV-09, FLT-DLV-18). |
@@ -798,7 +827,7 @@ the affected stages, and SHALL keep every other stage live.
   `stale: true`. Affected cells keep their last known state and the alert
   states the time of the last good read.
 - **Promotion history that has never succeeded.** Stage states SHALL NOT
-  change; group promotion times and the drawer's promotion history SHALL be
+  change; group promotion times and the change panel's promotion history SHALL be
   Unknown.
 - **Registry, GitOps, or promotion source that has never succeeded.** The
   stages it feeds SHALL be Unknown. A registry failure SHALL affect only
@@ -818,7 +847,7 @@ for an API error.
 - WHEN the tab renders
 - THEN the Release cell of every change that no locked bundle contains SHALL read Unknown once its Policy check has passed
 - AND a change that a locked bundle contains SHALL keep its Passed Release cell
-- AND the Merged, Build, Policy check, GitOps update, and environment-group cells SHALL still render from their own sources
+- AND the Merged, Build, Policy check, Renovate, and environment-group cells SHALL still render from their own sources
 - AND a warning alert SHALL name the bundle registry and the Release stage
 
 #### Scenario: FLT-DLV-13.02 -- Application repository stale
@@ -833,15 +862,17 @@ for an API error.
 The Delivery tab SHALL encode the selected change as the `change` query
 parameter (full commit SHA, push history) and the shared `bundle` parameter
 when set, following the route codec, canonicalization, and history rules of
-FLT-NAV-02 and FLT-NAV-06. A `change` that is not in the payload SHALL show the
-table with no drawer and an informational alert that the change is outside the
-current window.
+FLT-NAV-02 and FLT-NAV-06. Selecting a panel SHALL set `change`. A `change` in
+the payload SHALL scroll the strip to that change's panel and mark it selected.
+A `change` that is not in the payload SHALL show the strip with no panel
+selected and an informational alert that the change is outside the current
+window.
 
 #### Scenario: FLT-DLV-14.01 -- Deep link to a change
 
 - GIVEN a URL `/delivery?change=<sha>` for a listed change
 - WHEN the page loads
-- THEN the drawer SHALL open for that change
+- THEN the strip SHALL scroll to that change's panel and mark it selected
 
 ### Requirement: FLT-DLV-15 -- Fleet-identity firewall
 
@@ -863,10 +894,14 @@ The production Delivery tab SHALL match the approved mockup stories
 `Mockups/Glass/Delivery` (design review) and `Parity/Glass/Delivery` (parity)
 in `specs/web-console/mockups/dashboards/delivery-pipeline/`, state for state:
 `InFlight`, `ChangeSelected`, `BuildFailed`, `ReleaseOverdue`,
-`AllDelivered`, `PromotionRetried`, `BundleTrain`, `SourceUnavailable`,
-`Loading`, `NotConfigured`, and `Error`. `InFlight` SHALL show the progress bar
-and arrival range (FLT-DLV-19, FLT-DLV-10); `ReleaseOverdue` SHALL show the
-Overdue Release phase with its "Where to look" popup open (FLT-DLV-20).
+`AllDelivered`, `PromotionRetried`, `BundleTrain`, `WaitingOnRenovate`,
+`SourceUnavailable`, `Loading`, `NotConfigured`, and `Error`. `InFlight` SHALL
+show the Changes on main strip with the stepper and arrival range (FLT-DLV-19,
+FLT-DLV-10); `ReleaseOverdue` SHALL show the Overdue Release step with its
+"Where to look" popup open (FLT-DLV-20). `WaitingOnRenovate` SHALL show a
+published bundle waiting for Renovate and a change still expecting its bundle,
+both in the Pipeline now panel's Next list (FLT-DLV-23) and on the changes'
+Renovate and Release steps (FLT-DLV-07).
 `BundleTrain` SHALL show the Pipeline now panel during a bundle train, a partly
 shipped change, a superseded build, and an analysis that a newer bundle will
 restart (FLT-DLV-22, FLT-DLV-23). Every state SHALL show the Pipeline now
@@ -891,13 +926,16 @@ finish times (FLT-DLV-08), estimates from the last 5 runs sampled once per
 execution, with fewer than 3 samples and re-run gates (FLT-DLV-09), the
 per-refresh call budget (FLT-DLV-12), per-source degradation (FLT-DLV-13), and
 release diagnostics (FLT-DLV-20); UI domain tests for the Overdue rule
-(FLT-DLV-04), the Now and next text, arrival times, and severity (FLT-DLV-10),
-and progress-bar cells and percent (FLT-DLV-19); route-codec tests for
+(FLT-DLV-04), the Now and Next text, arrival times, and severity (FLT-DLV-10),
+and stepper steps, times, and percent (FLT-DLV-19); route-codec tests for
 `change` (FLT-DLV-14); and the replay (FLT-DLV-21). They SHALL also cover
 superseded builds (FLT-DLV-05), delivery time (FLT-DLV-02), waiting on
 `dependsOn` (FLT-DLV-08), per-environment estimates (FLT-DLV-09), arrival
 along the graph and gate restarts (FLT-DLV-10), partly shipped changes and the
-bundle train (FLT-DLV-22), and the Pipeline now panel (FLT-DLV-23).
+bundle train (FLT-DLV-22), the Pipeline now panel including expected
+bundles and Renovate waits (FLT-DLV-23), the Renovate stage states
+(FLT-DLV-07), the panel strip order (FLT-DLV-03), and full-time hovers and
+bundle identicons (FLT-DLV-24).
 
 #### Scenario: FLT-DLV-17.01 -- Markers present
 
@@ -941,14 +979,33 @@ the oldest listed change, and SHALL reach further back, up to
 environment (FLT-DLV-09). Results for a replaced promotion SHALL be cached
 once its gate runs completed or once it was replaced more than one hour ago.
 
+A change panel SHALL report each environment by the change's first bundle
+only, because every later bundle also contains the change and its result says
+nothing new about it:
+
+- When the first bundle's latest promotion there Passed, the environment SHALL
+  read Passed, with the bundle's identicon and alias (FLT-DLV-24), the time it
+  was deployed, and the time its gates passed.
+- When it is Running, Failed or Unknown, the environment SHALL read that state,
+  with the bundle's identicon, alias and deploy time.
+- When a later bundle replaced it, or reached the environment before it did,
+  the environment SHALL read **Not deployed** with the Replaced icon, naming the
+  later bundle with its identicon and alias and the time it was promoted.
+- With no promotion of the first bundle or a later one, the environment SHALL
+  read its state as today.
+
+The panel SHALL NOT show a later bundle's promotion as Passed for the change,
+and an environment's history in the panel SHALL list only the first bundle's
+promotions.
+
 #### Scenario: FLT-DLV-18.01 -- First bundle replaced while its analysis ran
 
 - GIVEN change C's first bundle B1 was promoted to environment E at 23:00
 - AND E's analysis gate for B1 was still running when bundle B2, which also contains C, was promoted to E at 23:10
 - AND E's analysis gate for B2 passed
-- WHEN the drawer for C renders
-- THEN E's history SHALL list B1 at 23:00 as Replaced and B2 at 23:10 as Passed
-- AND E's promotion time for C SHALL be 23:00
+- WHEN C's change panel renders
+- THEN E SHALL read "Not deployed" with the Replaced icon, replaced by B2's identicon and alias at 23:10
+- AND the panel SHALL NOT show B2 as Passed in E
 
 #### Scenario: FLT-DLV-18.02 -- Failed attempt is flagged
 
@@ -965,51 +1022,70 @@ once its gate runs completed or once it was replaced more than one hour ago.
 - THEN B2's outcome SHALL come from the check runs on B2's own merge commit
 - AND B1's outcome SHALL come from the check runs on B1's own merge commit
 
-### Requirement: FLT-DLV-19 -- Progress bar
+#### Scenario: FLT-DLV-18.04 -- Deployed first bundle
 
-Each Now and next row SHALL show a progress bar for the change with one cell
-per phase, in stage order (FLT-DLV-03), all cells of equal width. Each cell
-SHALL carry its phase number (1, 2, ...). A short vertical line SHALL connect
-each cell to its own label below it. The label SHALL state the phase name, its
-state as text, and one time: the finish time for a Passed phase, the elapsed
-time for a Running or Waiting phase, and the arrival time or range for an
-environment group not reached yet (FLT-DLV-10). The cell's color SHALL follow
-the state (FLT-DLV-04) and SHALL never be the only carrier of it. On a narrow
-screen the cells and their labels SHALL wrap to further lines instead of
-scrolling sideways.
+- GIVEN change C's first bundle B1 was promoted to environment E at 23:00 and its gates passed at 23:20
+- WHEN C's change panel renders
+- THEN E SHALL read Passed with B1's identicon and alias, deployed 23:00, gates passed 23:20
 
-The bar SHALL state a percent complete: elapsed / (elapsed + remaining), where
-elapsed is the time since the merge, and remaining is the remaining time of the
-current phase plus the estimates of every later phase. When any of those
-estimates is unknown, or while a stage is Failed or Overdue, the percent SHALL
-be omitted. The bar SHALL expose the percent and each cell's label to assistive
-technology; the change table stays the full accessible representation
-(FLT-DLV-03).
+### Requirement: FLT-DLV-19 -- Progress stepper
 
-#### Scenario: FLT-DLV-19.01 -- Cells and labels
+Each change panel SHALL show a vertical progress stepper with one step per
+stage, in stage order (FLT-DLV-03), each carrying its step number (1, 2, ...).
+Each step SHALL state the stage name, its state as text, and one time
+whenever one can be associated: the finish time for a Passed step (with its
+start time and duration when known), the elapsed time and start time for a
+Running or Waiting step, the expected time for the next step (FLT-DLV-10), and
+the arrival time or range for an environment group not reached yet. A Not
+needed step SHALL state why instead of a time. The step's icon and color SHALL
+follow the state (FLT-DLV-04) and SHALL never be the only carrier of it.
+
+The Release step SHALL show the bundle's identicon and alias next to its time
+(FLT-DLV-24). The Renovate step SHALL show the Renovate pull request's state
+and times (FLT-DLV-07). Each environment-group step SHALL list its environments,
+each reported by the change's first bundle (FLT-DLV-18) with a state icon. Each
+environment name SHALL be a link that opens the Fleet Map with that node
+selected. Before the change reaches an environment, its line SHALL state why it
+waits (FLT-DLV-08). When the first bundle was retried or failed there, the
+first bundle's promotions SHALL follow the line, oldest first (FLT-DLV-18).
+
+The panel SHALL state a percent complete: elapsed / (elapsed + remaining),
+where elapsed is the time since the merge, and remaining is the remaining time
+of the current phase plus the estimates of every later phase. When any of
+those estimates is unknown, or while a stage is Failed or Overdue, the percent
+SHALL be omitted. The percent SHALL be exposed to assistive technology.
+
+#### Scenario: FLT-DLV-19.01 -- Steps and labels
 
 - GIVEN a promotion graph with groups Int, Stage, and Prod
-- WHEN a Now and next row renders
-- THEN the bar SHALL show 7 numbered cells: Build, Policy check, Release, GitOps update, Int, Stage, Prod
-- AND each cell SHALL have a label naming the phase, its state, and one time
+- WHEN a change panel renders
+- THEN the stepper SHALL show 8 numbered steps: Merged, Build, Policy check, Release, Renovate, Int, Stage, Prod
+- AND each step SHALL name the stage, its state, and one time when one is known
 
 #### Scenario: FLT-DLV-19.02 -- Percent complete
 
 - GIVEN a change merged 30 minutes ago whose remaining time to the last group is 90 minutes
-- WHEN the row renders
-- THEN the bar SHALL read "25%"
+- WHEN its panel renders
+- THEN the panel SHALL read "25%"
 
 #### Scenario: FLT-DLV-19.03 -- Narrow screen
 
 - GIVEN a 390 pixel wide viewport
-- WHEN the row renders
-- THEN the cells SHALL wrap onto more than one line
-- AND the page SHALL NOT scroll sideways
+- WHEN the Changes on main strip renders
+- THEN each panel SHALL fit the viewport width
+- AND the strip SHALL scroll sideways, and the page SHALL NOT
+
+#### Scenario: FLT-DLV-19.04 -- Environments live on their group step
+
+- GIVEN change C reached environment E in group Int
+- WHEN C's panel renders
+- THEN E SHALL appear once, on the Int step, as a link that opens the Fleet Map with E selected
+- AND the panel SHALL NOT repeat the environments in a separate list
 
 ### Requirement: FLT-DLV-20 -- Where to look
 
 An Overdue or Failed phase SHALL offer a **Where to look** popup from its
-progress-bar cell and from its table cell. The popup SHALL open on hover, on
+stepper step. The popup SHALL open on hover, on
 keyboard focus, and on tap, and SHALL close on Escape. Its content depends on
 the phase:
 
@@ -1025,7 +1101,7 @@ the phase:
   component has no usable image or which built image is not in the registry.
   The image check is a CI job that waits for the Konflux builds and confirms
   their images are published. It measures the same wait as Build, so it SHALL
-  NOT be a phase or a progress-bar cell of its own.
+  NOT be a phase or a stepper step of its own.
 - **Release, Overdue:** the BFF SHALL supply these release diagnostics:
   1. the last good release: the newest published bundle's alias and
      publication time;
@@ -1039,7 +1115,7 @@ the phase:
      SHALL NOT claim whether any are pending;
   5. the newest registry bundle tag next to the newest published GitHub release
      tag, flagged when they differ.
-- **GitOps update, Overdue or Failed:** the bundle update pull request and its
+- **Renovate, Overdue or Failed:** the bundle update pull request and its
   check state, or "No bundle update pull request yet".
 - **Environment group, Overdue or Failed:** per environment not finished, the
   gate that is running or failed, with the environment's analysis and Argo CD
@@ -1147,7 +1223,7 @@ history, where the restarted promotion reads Replaced (FLT-DLV-18).
 
 ### Requirement: FLT-DLV-23 -- Pipeline now
 
-Above the Now and next summary, the tab SHALL show a **Pipeline now** panel
+Above the Changes on main strip, the tab SHALL show a **Pipeline now** panel
 that states the situation at this moment, without the operator reading rows.
 It SHALL answer three questions:
 
@@ -1164,9 +1240,19 @@ It SHALL answer three questions:
    number ("attempt 1 of 3"), and the environments waiting with what each
    waits for (its `dependsOn`).
 3. **What happens next?** The expected next events in order, each with an
-   expected time when estimates allow: the next bundle published, the next
-   GitOps lock, gates that a new bundle will restart, and the next
-   environments to promote.
+   expected time when estimates allow:
+   - **Expecting bundle**, for each change merged on `main` whose rebuilt
+     components no published bundle contains yet: "Expecting bundle for
+     #<pr> - about <time>". The time is the merge time plus the remaining
+     Build, Policy check, and Release estimates. Changes that will ride the
+     same bundle SHALL share one line.
+   - **Waiting on Renovate**, for each published bundle that is not locked
+     yet: its identicon and alias, and "Waiting for Renovate", "PR #n open,
+     checks running", "PR #n checks passed", or "PR #n checks failed"
+     (FLT-DLV-07), with the expected lock time: the publication time (or the
+     pull request's opening time) plus the Renovate estimate.
+   - Gates that a new bundle will restart, and the next environments to
+     promote.
 
 Each environment SHALL appear once, with the bundle it runs now, even when no
 listed change is in flight there. The panel SHALL use only data the payload
@@ -1198,3 +1284,68 @@ Unknown (FLT-DLV-13), the panel SHALL say which answer it cannot give.
 - AND a delivered change with a policy check that never finished
 - WHEN the panel lists what is in flight
 - THEN it SHALL list neither, and SHALL list the change's own running builds
+
+#### Scenario: FLT-DLV-23.04 -- Expecting a bundle
+
+- GIVEN #1192 merged at 18:42, rebuilt api-server, and no published bundle contains it
+- AND the remaining Build, Policy check, and Release estimates add up to 26 minutes at 18:50
+- WHEN the panel renders at 18:50
+- THEN Next SHALL read "Expecting bundle for #1192 - about 19:16"
+
+#### Scenario: FLT-DLV-23.05 -- Bundle waiting on Renovate
+
+- GIVEN bundle B was published at 19:09 and is not locked
+- AND the Renovate pull request #2951 proposes B with its checks running
+- WHEN the panel renders
+- THEN Next SHALL show B's identicon and alias with "PR #2951 open, checks running" and the expected lock time
+
+### Requirement: FLT-DLV-24 -- Times and bundle identity
+
+Every time the Delivery tab shows, in the Pipeline now panel and in change
+panels, SHALL reveal its full date and time, with seconds and time zone (for
+example "Wed 26 Nov 2026, 19:09:42 CET"), on hover and on keyboard focus. The
+time SHALL be marked up as a `time` element with its ISO 8601 value. Short
+times SHALL keep the 24-hour clock, and SHALL add the date when the time is not
+today.
+
+Wherever the tab names a bundle, it SHALL show the bundle's identicon next to
+its alias. Glass SHALL draw every bundle identicon, on every tab, with the
+DiceBear **Initials** style. The letters SHALL come from the bundle's alias,
+which is derived from the digest, so one bundle looks the same on the Fleet Map,
+Agent SDLC, E2E Runs, and Delivery tabs. The identicon
+SHALL be decorative: the alias next to it carries the meaning. DiceBear SHALL be
+a pinned dependency rendered in the browser, with no network call.
+
+#### Scenario: FLT-DLV-24.01 -- Full time on hover
+
+- GIVEN a Release step that shows "19:09"
+- WHEN the operator hovers or focuses that time
+- THEN a tooltip SHALL show the full date and time with seconds and time zone
+
+#### Scenario: FLT-DLV-24.02 -- One bundle, one picture
+
+- GIVEN bundle B with digest D
+- WHEN B appears on the Delivery tab and on the Fleet Map
+- THEN both SHALL show the same Initials identicon, drawn from the alias of D
+
+
+### Requirement: FLT-DLV-25 -- Shipped section
+
+The Delivery tab SHALL show the **Shipped** release-by-hub-cluster matrix
+(SDLC-VIS-11) between the Pipeline now panel and the Changes on main strip. It
+SHALL read the Agent SDLC plane (SDLC-VIS-01) and SHALL keep its expanded row
+in the `shiprow` parameter (the bundle seed, FLT-NAV-13). When the Agent SDLC
+plane is unavailable, the section SHALL say so and the rest of the tab SHALL be
+unaffected. The Agent SDLC tab SHALL NOT show the matrix.
+
+#### Scenario: FLT-DLV-25.01 -- Shipped sits between Pipeline now and the strip
+
+- GIVEN an authorized operator
+- WHEN the operator opens `/delivery`
+- THEN the Shipped section SHALL appear below Pipeline now and above Changes on main
+
+#### Scenario: FLT-DLV-25.02 -- Expanded row is addressable
+
+- GIVEN the operator expands bundle B's row in the Shipped section
+- WHEN the operator copies the URL and opens it in a new tab
+- THEN the Delivery tab SHALL open with B's row expanded

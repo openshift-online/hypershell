@@ -599,14 +599,20 @@ function deliveryMock(nowMs: number) {
         },
       ],
       next: [
+        // FLT-DLV-23.04, FLT-DLV-23.05: an expected bundle and a published
+        // bundle waiting on Renovate.
         {
-          kind: "bundle-published",
-          components: ["agent"],
-          at: new Date(nowMs + 2 * 60_000).toISOString(),
+          kind: "expecting-bundle",
+          components: ["web"],
+          changes: [{ sha: "3".repeat(40), shortSha: "3333333", pr: 103 }],
+          at: new Date(nowMs + 12 * 60_000).toISOString(),
         },
         {
-          kind: "locked",
-          components: ["agent"],
+          kind: "renovate",
+          digest: "sha256:cccc3333",
+          version: "v3",
+          state: "running",
+          pr: 42,
           at: new Date(nowMs + 8 * 60_000).toISOString(),
         },
         {

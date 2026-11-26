@@ -11,7 +11,7 @@ dashboard, `glass.infra.hypershell.app`) reconstructible from its URL. Today Gla
 keeps almost all navigation, selection, and deliberate view state in
 component-local React state: the active tab, the shared release-bundle selection,
 map node/gate/drawer selection and nested tabs, the Agent SDLC scope filter,
-search, selected card, escalations drawer, and shipped selection, and the e2e-run
+search, selected card, escalations drawer, and expanded shipped rows, and the e2e-run
 list filter, sort, selected run, selected step, log scope, and log controls. A
 reload, a pasted link, opening in a new tab, or an authentication round trip loses
 that context, and browser Back/Forward cannot retrace an investigation.
@@ -62,8 +62,9 @@ active top-level tab; the shared freight-bar selected release bundle (by bundle
 seed, a full release digest falling back to version); map node/gate selection and
 drawer open/closed; map node-detail sub-tab (Details/Bundle/Agents/Links); gate-execution
 pinned attempt plus Progress/Logs sub-tab, selected step scope, and expanded log
-viewer; Agent SDLC scope multi-select, issue search, selected board card, shipped
-selection, escalations drawer and selected escalation, and expanded buckets/rows;
+viewer; Agent SDLC scope multi-select, issue search, selected board card,
+escalations drawer and selected escalation, and expanded buckets; the Delivery
+tab's selected change and expanded Shipped rows;
 E2E run selection and drawer open/closed, run and step table sorts, run search,
 Progress/Logs sub-tab, selected step, log search, timestamp toggle, and expanded
 log viewer. Intentionally transient (NOT URL-represented): fetched snapshots and
@@ -219,8 +220,8 @@ change SHALL NOT be echoed back as a new history entry.
 The route contract SHALL define whether inactive tabs retain their prior state and
 how that is represented. Switching tabs SHALL NOT accidentally reuse a different
 tab's selected entity or silently discard context; the rule SHALL be documented.
-Context-preserving transitions that exist today SHALL remain addressable: SDLC
-shipped bundle to Fleet Map bundle, map gate to E2E history attempt, and
+Context-preserving transitions that exist today SHALL remain addressable:
+Shipped bundle to Fleet Map bundle, map gate to E2E history attempt, and
 bundle/run/target cross-links. Every internal navigation affordance that performs a
 navigation -- identicons, bundle links, map nodes and gates, issue cards, shipped
 items, and E2E history links -- SHALL resolve to a real link destination so that
@@ -235,7 +236,7 @@ copy-link, open-in-new-tab, and Ctrl/Cmd-click work.
 
 #### Scenario: FLT-NAV-08.02 -- Cross-link carries context
 
-- GIVEN a shipped bundle in Agent SDLC that links to Fleet Map
+- GIVEN a shipped bundle in the Delivery tab's Shipped section that links to Fleet Map
 - WHEN the operator activates the link
 - THEN the Fleet Map SHALL open with the same bundle selected, and the URL SHALL encode that selection
 - AND the link SHALL support copy, open-in-new-tab, and Ctrl/Cmd-click
@@ -355,8 +356,9 @@ bundle replaced by today's active bundle.
 The Agent SDLC tab SHALL address its scope multi-select (with canonical ordering
 for multiple scopes) and its issue-number/title search, the selected board card by
 issue identity rather than a serialized card object or array position, the card
-detail drawer, the escalations notification drawer and the selected escalation, the
-shipped selection, and expanded shipped-bundle rows. Expanded/collapsed escalation
+detail drawer, and the escalations notification drawer and the selected escalation.
+The Delivery tab SHALL address its expanded Shipped rows by bundle seed
+(`shiprow`, FLT-DLV-25). Expanded/collapsed escalation
 buckets MAY remain transient disclosure state if the matrix classifies them so.
 Browser Back and the drawer's internal Back control SHALL have coherent semantics:
 the escalation-detail Back-to-list path and browser Back SHALL both return to the
@@ -424,8 +426,7 @@ selection being dropped.
 #### Scenario: FLT-NAV-14.04 -- Incompatible selections canonicalize to a single winner
 
 - GIVEN a crafted or stale URL that sets two mutually exclusive selections at once
-  (for example an Agent SDLC board card and a shipped issue, or a shipped issue and
-  the escalations list)
+  (for example a Fleet Map node and a promotion gate)
 - WHEN Glass parses it
 - THEN it SHALL keep exactly one selection and clear the others
 - AND it SHALL serialize back to a canonical URL carrying only the retained selection

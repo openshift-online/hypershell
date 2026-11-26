@@ -1152,19 +1152,16 @@ function NotificationsPanel({
 }
 
 /** The tracked-issue list of a bundle (or the Unreleased row): each execution record
- *  links to its shipped-issue side panel (SDLC-VIS-10/11). In a bundle, the pull
+ *  links to the issue on GitHub (SDLC-VIS-11). In a bundle, the pull
  *  requests that delivered the issue are grouped (indented) beneath it, so the row
  *  summary's PR count reconciles with what is on screen (SDLC-VIS-03). In the
  *  Unreleased row an issue carries no bundle PRs, so nothing is nested. */
 function MatrixIssueList({
   issues,
-  version,
   mergedLine,
   nowMs,
 }: {
   issues: readonly AgentSdlcShippedIssue[];
-  /** The bundle version context for the shipped selection the link addresses. */
-  version: string | null;
   mergedLine: (issue: AgentSdlcShippedIssue) => string | null;
   nowMs?: number;
 }): React.ReactElement {
@@ -1175,14 +1172,18 @@ function MatrixIssueList({
         const issueLabel = `#${String(issue.number)} ${issue.title}`;
         return (
           <StackItem key={issue.number} className={styles.shipEnter}>
-            <NavLinkButton
-              action={{
-                type: "sdlcShipped",
-                shipped: { issue: issue.number, version },
-              }}
+            <Button
+              component="a"
+              href={issue.url}
+              icon={<ExternalLinkAltIcon />}
+              iconPosition="end"
+              isInline
+              rel="noreferrer"
+              target="_blank"
+              variant="link"
             >
               {issueLabel}
-            </NavLinkButton>
+            </Button>
             {ago ? <Content component="small"> {ago}</Content> : null}
             {issue.prs.length > 0 ? (
               <div
@@ -1318,13 +1319,7 @@ function MatrixBundleContents({
         </Content>
       );
     }
-    return (
-      <MatrixIssueList
-        issues={row.issues}
-        version={null}
-        mergedLine={mergedLine}
-      />
-    );
+    return <MatrixIssueList issues={row.issues} mergedLine={mergedLine} />;
   }
 
   const hasApplication = row.issues.length > 0 || row.otherPRs.length > 0;
@@ -1354,7 +1349,6 @@ function MatrixBundleContents({
                 </Title>
                 <MatrixIssueList
                   issues={row.issues}
-                  version={row.version}
                   mergedLine={mergedLine}
                   nowMs={nowMs}
                 />
@@ -1377,6 +1371,35 @@ function MatrixBundleContents({
       </StackItem>
       <MatrixGitopsSection row={row} nowMs={nowMs} />
     </Stack>
+  );
+}
+
+/**
+ * The Shipped release-by-hub-cluster matrix, shown on the Delivery tab between
+ * Pipeline now and Changes on main (FLT-DLV-25, SDLC-VIS-11). Its expanded row
+ * lives in the Delivery route state (`shiprow`, FLT-NAV-13).
+ */
+export function ShippedSection({
+  data,
+  selectedBundleSeed,
+  nowMs,
+}: {
+  readonly data: AgentSdlcData;
+  readonly selectedBundleSeed: string | null;
+  readonly nowMs?: number;
+}): React.ReactElement {
+  const route = useRoute();
+  const { navigate } = useRouter();
+  return (
+    <ShippedMatrix
+      data={data}
+      expandedSeed={route.delivery.shippedRow}
+      nowMs={nowMs}
+      selectedBundleSeed={selectedBundleSeed}
+      onToggleRow={(seed) => {
+        navigate({ type: "shippedRow", seed });
+      }}
+    />
   );
 }
 
@@ -1669,11 +1692,6 @@ function CardDetailPanel({
 }
 
 /** A shipped issue selected from the matrix. */
-interface ShippedSelection {
-  readonly issue: AgentSdlcShippedIssue;
-  readonly version: string | null;
-}
-
 /**
  * Resolve a board/escalation card from its issue number (FLT-NAV-13): a stable
  * identity that survives a background board reorder. Returns null when the addressed
@@ -1687,100 +1705,6 @@ function resolveCard(
     return null;
   }
   return [...data.cards, ...data.lane].find((c) => c.number === number) ?? null;
-}
-
-/** Resolve a shipped selection from its issue number and version context. */
-function resolveShipped(
-  data: AgentSdlcData,
-  number: number | null,
-  version: string | null,
-): ShippedSelection | null {
-  if (number === null) {
-    return null;
-  }
-  let fallback: ShippedSelection | null = null;
-  for (const row of data.matrix.rows) {
-    const issue = row.issues.find((i) => i.number === number);
-    if (issue) {
-      if (version === null || row.version === version) {
-        return { issue, version: row.version };
-      }
-      fallback ??= { issue, version: row.version };
-    }
-  }
-  return fallback;
-}
-
-/** Compact details panel for a shipped issue (lighter than a board card: no live
- *  phase history), so clicking a matrix issue opens the same side panel (SDLC-VIS-10). */
-function ShippedDetailPanel({
-  selection,
-  nowMs,
-  onClose,
-}: {
-  selection: ShippedSelection;
-  nowMs?: number;
-  onClose: () => void;
-}): React.ReactElement {
-  const intl = useIntl();
-  const { issue, version } = selection;
-  const panelTitle = `#${String(issue.number)} ${issue.title}`;
-  const mergedAgo = formatMergedLine(intl, issue, nowMs);
-  return (
-    <DrawerPanelContent isResizable defaultSize="33%" minSize="360px">
-      <DrawerHead>
-        <Title headingLevel="h3" size="md">
-          <Button
-            component="a"
-            variant="link"
-            isInline
-            href={issue.url}
-            target="_blank"
-            rel="noreferrer"
-            icon={<ExternalLinkAltIcon />}
-            iconPosition="end"
-          >
-            {panelTitle}
-          </Button>
-        </Title>
-        <DrawerActions>
-          <DrawerCloseButton onClick={onClose} />
-        </DrawerActions>
-      </DrawerHead>
-      <DrawerPanelBody>
-        <DescriptionList isHorizontal isCompact>
-          <DescriptionListGroup>
-            <DescriptionListTerm>
-              <FormattedMessage {...messages.sdlcDetailPhase} />
-            </DescriptionListTerm>
-            <DescriptionListDescription>
-              <Label isCompact icon={phaseIconEl("shipped")}>
-                <FormattedMessage {...messages.sdlcPhaseShipped} />
-              </Label>
-            </DescriptionListDescription>
-          </DescriptionListGroup>
-          <DescriptionListGroup>
-            <DescriptionListTerm>
-              <FormattedMessage {...messages.sdlcDetailBundle} />
-            </DescriptionListTerm>
-            <DescriptionListDescription>
-              {version ?? <FormattedMessage {...messages.sdlcUnreleased} />}
-            </DescriptionListDescription>
-          </DescriptionListGroup>
-          {mergedAgo ? (
-            <DescriptionListGroup>
-              <DescriptionListTerm>
-                <FormattedMessage {...messages.sdlcDetailMerged} />
-              </DescriptionListTerm>
-              <DescriptionListDescription>
-                {mergedAgo}
-              </DescriptionListDescription>
-            </DescriptionListGroup>
-          ) : null}
-        </DescriptionList>
-      </DrawerPanelBody>
-    </DrawerPanelContent>
-  );
 }
 
 /** A full-card phase-transition flight ready to render: the cloned card node plus the
@@ -1885,7 +1809,6 @@ function buildCardFlights(
   lastKnown: Map<number, CapturedCard>,
   columnRects: Map<string, DOMRect>,
   boardRect: DOMRect | null,
-  matrixRect: DOMRect | null,
 ): ActiveCardFlight[] {
   const active: ActiveCardFlight[] = [];
   for (const cf of found) {
@@ -1931,16 +1854,14 @@ function buildCardFlights(
       continue;
     }
 
-    // Destination top-left: the matrix landing for a ship hop, else the new column slot,
+    // Destination top-left: a ship hop stays in its slot and fades out there, since the
+    // release matrix lives on the Delivery tab (SDLC-VIS-20); else the new column slot,
     // else the to-phase column anchor (the card is held out of the DOM).
     let dLeft: number;
     let dTop: number;
     if (cf.toShipped) {
-      if (!matrixRect) {
-        continue;
-      }
-      dLeft = matrixRect.left + 20;
-      dTop = matrixRect.top + 10;
+      dLeft = srcLeft;
+      dTop = srcTop;
     } else {
       const destRect =
         current.get(cf.number)?.rect ?? columnRects.get(cf.toPhase);
@@ -2001,7 +1922,6 @@ function captureColumns(board: HTMLElement | null): Map<string, DOMRect> {
 function useCardFlights(
   data: AgentSdlcData,
   boardRef: React.RefObject<HTMLDivElement | null>,
-  matrixRef: React.RefObject<HTMLDivElement | null>,
 ): BoardFlightsState {
   const prevDataRef = useRef<AgentSdlcData | null>(null);
   // The previous commit's captured cards, so a transition can read the source slot after
@@ -2068,7 +1988,6 @@ function useCardFlights(
       lastKnown,
       columnRects,
       boardRef.current?.getBoundingClientRect() ?? null,
-      matrixRef.current?.getBoundingClientRect() ?? null,
     );
     if (active.length === 0) {
       return;
@@ -2098,7 +2017,7 @@ function useCardFlights(
       track.add(cullId);
     };
     launch(active);
-  }, [data, boardRef, matrixRef]);
+  }, [data, boardRef]);
 
   // A column-bound flight holds its destination card until the copy lands (no double
   // render). Ship hops are excluded: the card has already left the board.
@@ -2421,7 +2340,6 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
   const { data } = props;
   const intl = useIntl();
   const boardRef = useRef<HTMLDivElement>(null);
-  const matrixRef = useRef<HTMLDivElement>(null);
   // Navigation, selection, and filter state come from the URL (FLT-NAV-05,
   // FLT-NAV-13); selections are addressed by issue number and resolved back to the
   // live record so they survive a background board reorder (FLT-NAV-14).
@@ -2431,20 +2349,11 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
   const selectedScopes = route.sdlc.scopes;
   const query = route.sdlc.query;
   const selected = resolveCard(data, route.sdlc.card);
-  const selectedShipped = resolveShipped(
-    data,
-    route.sdlc.shipped,
-    route.sdlc.shippedVersion,
-  );
   useHorizontalWheel(boardRef);
   // Full-card phase-transition flights: diff the server snapshot, fly the whole card
-  // between columns (and into the matrix on ship), and hold the destination until it lands
+  // between columns (fading out in place on ship), and hold the destination until it lands
   // (SDLC-VIS-20/SDLC-VIS-21). Suppressed under prefers-reduced-motion (cards snap).
-  const { flights: cardFlights, heldNumbers } = useCardFlights(
-    data,
-    boardRef,
-    matrixRef,
-  );
+  const { flights: cardFlights, heldNumbers } = useCardFlights(data, boardRef);
 
   // Agent runtime telemetry keyed by agent name for O(1) column lookups.
   const agentByName = useMemo(() => {
@@ -2455,17 +2364,14 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
   }, [props.agents]);
 
   // Local ephemeral state for the agent detail panel (SDLC-AGT-08). A route-driven
-  // panel (card detail, shipped detail, notifications) supersedes it. Reset during
+  // panel (card detail, notifications) supersedes it. Reset during
   // render (the React-recommended "adjust state when a prop changes" pattern,
   // precedented in NodeDetails's cursor reset) rather than in an effect, so there
   // is no extra render pass and no synchronous setState-in-effect.
   const [selectedAgentName, setSelectedAgentName] = useState<string | null>(
     null,
   );
-  const routePanelActive =
-    route.sdlc.card !== null ||
-    route.sdlc.shipped !== null ||
-    showNotifications;
+  const routePanelActive = route.sdlc.card !== null || showNotifications;
   const [wasRoutePanelActive, setWasRoutePanelActive] =
     useState(routePanelActive);
   if (routePanelActive !== wasRoutePanelActive) {
@@ -2482,10 +2388,7 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
   // Escape closes the side panel (card detail or escalations). An open select menu
   // handles its own Escape first (guarded on an open listbox), so it isn't swallowed.
   const panelOpen =
-    selected !== null ||
-    selectedShipped !== null ||
-    showNotifications ||
-    selectedAgent !== null;
+    selected !== null || showNotifications || selectedAgent !== null;
   useEffect(() => {
     if (!panelOpen) {
       return;
@@ -2609,14 +2512,6 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
             : undefined
         }
       />
-    ) : selectedShipped !== null ? (
-      <ShippedDetailPanel
-        selection={selectedShipped}
-        nowMs={props.nowMs}
-        onClose={() => {
-          navigate({ type: "sdlcShipped", shipped: null });
-        }}
-      />
     ) : showNotifications ? (
       <NotificationsPanel
         lane={agedLane}
@@ -2737,17 +2632,6 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
               </div>
             </div>
             <BoardFlights flights={cardFlights} />
-            <div className={styles.bottom}>
-              <div ref={matrixRef}>
-                <ShippedMatrix
-                  {...props}
-                  expandedSeed={route.sdlc.shippedRow}
-                  onToggleRow={(seed) => {
-                    navigate({ type: "sdlcShippedRow", seed });
-                  }}
-                />
-              </div>
-            </div>
           </div>
         </DrawerContentBody>
       </DrawerContent>

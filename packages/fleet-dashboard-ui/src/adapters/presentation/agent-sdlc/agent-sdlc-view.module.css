@@ -376,13 +376,6 @@
   height: 100%;
 }
 
-/* Bottom region: escalation lane + shipped matrix, below the board. */
-.bottom {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--pf-t--global--spacer--lg, 24px);
-}
 .lane {
   display: flex;
   flex-wrap: wrap;

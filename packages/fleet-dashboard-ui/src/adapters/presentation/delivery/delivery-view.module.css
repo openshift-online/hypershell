@@ -11,76 +11,60 @@
   display: block;
 }
 
-/* Progress bar (FLT-DLV-19), the same rules as the approved mockup: one equal-width cell per phase, numbered, each
-   joined to its own label by a short vertical line. Cells wrap on narrow
-   screens instead of scrolling sideways. */
-.progress {
-  margin-block-start: var(--pf-t--global--spacer--sm);
-}
-
-.cells {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
-  gap: var(--pf-t--global--spacer--md) var(--pf-t--global--spacer--xs);
+/* Changes on main (FLT-DLV-03): change panels side by side, newest first.
+   Only the strip scrolls sideways; the page does not. The edge shadows show
+   that more panels exist past each edge. */
+.strip {
+  display: flex;
+  gap: var(--pf-t--global--spacer--md);
   margin: 0;
-  padding: 0;
+  padding: 0 0 var(--pf-t--global--spacer--sm);
   list-style: none;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  background:
+    linear-gradient(
+        to right,
+        var(--pf-t--global--background--color--primary--default) 30%,
+        transparent
+      )
+      left / 2rem 100% no-repeat local,
+    linear-gradient(
+        to left,
+        var(--pf-t--global--background--color--primary--default) 30%,
+        transparent
+      )
+      right / 2rem 100% no-repeat local,
+    radial-gradient(
+        farthest-side at 0 50%,
+        var(--pf-t--global--box-shadow--color--md),
+        transparent
+      )
+      left / 0.75rem 100% no-repeat scroll,
+    radial-gradient(
+        farthest-side at 100% 50%,
+        var(--pf-t--global--box-shadow--color--md),
+        transparent
+      )
+      right / 0.75rem 100% no-repeat scroll;
 }
 
-.cell {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+.strip:focus-visible {
+  outline: var(--pf-t--global--border--width--strong) solid
+    var(--pf-t--global--border--color--clicked);
 }
 
-.segment {
-  display: flex;
-  align-items: center;
-  height: 1.25rem;
-  padding-inline: var(--pf-t--global--spacer--xs);
-  border-radius: var(--pf-t--global--border--radius--small);
-  background: var(--pf-t--global--border--color--default);
-  color: var(--pf-t--global--text--color--regular);
-  font-size: var(--pf-t--global--font--size--xs);
-  font-weight: var(--pf-t--global--font--weight--body--bold);
+.panel {
+  flex: 0 0 min(24rem, calc(100vw - 4rem));
+  scroll-snap-align: start;
+  border-radius: var(--pf-t--global--border--radius--medium);
 }
 
-.connector {
-  width: 1px;
-  height: 0.75rem;
-  margin-inline-start: var(--pf-t--global--spacer--sm);
-  background: var(--pf-t--global--border--color--hover);
-}
-
-.label {
-  font-size: var(--pf-t--global--font--size--sm);
-  overflow-wrap: anywhere;
-}
-
-.segment[data-state="passed"] {
-  background: var(--pf-t--global--color--status--success--default);
-  color: var(--pf-t--global--text--color--status--on-success--default);
-}
-
-.segment[data-state="running"] {
-  background: var(--pf-t--global--color--status--info--default);
-  color: var(--pf-t--global--text--color--status--on-info--default);
-}
-
-.segment[data-state="failed"] {
-  background: var(--pf-t--global--color--status--danger--default);
-  color: var(--pf-t--global--text--color--status--on-danger--default);
-}
-
-.segment[data-overdue="true"] {
-  background: var(--pf-t--global--color--status--warning--default);
-  color: var(--pf-t--global--text--color--status--on-warning--default);
-}
-
-.segment[data-state="not-needed"],
-.segment[data-state="unknown"] {
-  background: var(--pf-t--global--background--color--secondary--default);
-  color: var(--pf-t--global--text--color--subtle);
+/* FLT-DLV-14: the panel the `change` parameter selects. */
+.panel[data-selected="true"] {
+  outline: var(--pf-t--global--border--width--strong) solid
+    var(--pf-t--global--border--color--clicked);
 }
 
 /* Space before a link or text that follows other inline content. */
@@ -93,12 +77,14 @@
   margin-inline-start: var(--pf-t--global--spacer--sm);
 }
 
-/* The progress bar under each Now and next row. */
-.progressRow {
-  padding: 0 var(--pf-t--global--spacer--md) var(--pf-t--global--spacer--md);
-}
-
 /* Secondary text in the Pipeline now panel (FLT-DLV-23). */
 .subtle {
   color: var(--pf-t--global--text--color--subtle);
+}
+
+/* A time that shows its full date on hover and focus (FLT-DLV-24). */
+.time {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: help;
 }

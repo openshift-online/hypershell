@@ -1153,7 +1153,11 @@ func buildDelivery(in deliveryInput, listed []listedChange, omitted int) Deliver
 		Omitted:   omitted,
 		Sources:   in.sources,
 	}
-	for _, l := range listed {
+	// The strip lists changes by merge time, newest first (FLT-DLV-03); the
+	// commits are read newest first, so the commit index orders them.
+	ordered := slices.Clone(listed)
+	sort.SliceStable(ordered, func(a, b int) bool { return ordered[a].idx < ordered[b].idx })
+	for _, l := range ordered {
 		p.Changes = append(p.Changes, buildChange(in, pl, groups, l))
 	}
 	p.Estimates = estimates(phaseSamples(in, pl, groups), in.now)
@@ -1315,7 +1319,7 @@ func buildChange(in deliveryInput, pl placement, groups []envGroup, l listedChan
 		}
 	}
 
-	// GitOps update (FLT-DLV-07).
+	// Renovate (FLT-DLV-07).
 	gitops := DeliveryStage{Key: stageGitOps}
 	switch {
 	case !in.gitopsKnown:
@@ -1333,7 +1337,13 @@ func buildChange(in deliveryInput, pl placement, groups []envGroup, l listedChan
 				ch.GitOpsPR = &DeliveryPRLink{Number: n, URL: in.htmlBase + "/" + in.gitopsRepo + "/pull/" + itoa(n)}
 			}
 		} else if in.bundlePR != nil && containsIdx(pl, in.bundlePRDig, first) {
+			// The open Renovate pull request proposes a bundle with the change:
+			// Running since it opened, or Failed when its checks failed.
 			gitops.State, gitops.PR, gitops.Checks = StageRunning, in.bundlePR.Number, in.bundlePR.Checks
+			gitops.StartedAt = in.bundlePR.CreatedAt
+			if in.bundlePR.Checks == "failed" {
+				gitops.State = StageFailed
+			}
 			ch.GitOpsPR = &DeliveryPRLink{Number: in.bundlePR.Number, URL: in.bundlePR.URL}
 		} else {
 			gitops.State, gitops.Reason = StageWaiting, reasonWaitingBundlePR

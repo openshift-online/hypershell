@@ -2,6 +2,7 @@ package sources
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -273,17 +274,21 @@ func TestPipelineNow(t *testing.T) {
 	}
 	// agent's policy passed at 12:51: published about 12:53, locked about
 	// 12:59 (now 13:00), and lands in hub before its analysis ends at 13:08.
+	// c4 is partly shipped, so only c5 expects a bundle.
 	kinds := []string{}
 	for _, e := range now.Next {
 		kinds = append(kinds, e.Kind)
 	}
-	if strings.Join(kinds, ",") != "bundle-published,locked,restart,promote" {
-		t.Fatalf("next = %v, want published, locked, restart, promote", kinds)
+	if strings.Join(kinds, ",") != "expecting-bundle,restart,promote" {
+		t.Fatalf("next = %v, want expecting-bundle, restart, promote", kinds)
 	}
-	if r := now.Next[2]; strings.Join(r.Envs, ",") != "hub" || strings.Join(r.Components, ",") != "agent" {
+	if e := now.Next[0]; len(e.Changes) != 1 || e.Changes[0].ShortSHA != "c5" || strings.Join(e.Components, ",") != "agent" {
+		t.Errorf("expecting = %+v, want c5's agent bundle", e)
+	}
+	if r := now.Next[1]; strings.Join(r.Envs, ",") != "hub" || strings.Join(r.Components, ",") != "agent" {
 		t.Errorf("restart = %+v, want hub restarted by the agent bundle", r)
 	}
-	if pr := now.Next[3]; strings.Join(pr.Envs, ",") != "stage-a,stage-b" || strings.Join(pr.After, ",") != "hub" || pr.At != tm(68) {
+	if pr := now.Next[2]; strings.Join(pr.Envs, ",") != "stage-a,stage-b" || strings.Join(pr.After, ",") != "hub" || pr.At != tm(68) {
 		t.Errorf("promote = %+v, want Stage after hub at %s", pr, tm(68))
 	}
 	if !slicesEqual(train[len(train)-1].Restarts, []string{"hub"}) {
@@ -342,5 +347,107 @@ func TestPipelineNowInFlightChecks(t *testing.T) {
 	}
 	if !slicesEqual(got, []string{"build:agent@c4"}) {
 		t.Errorf("in flight = %v, want only c4's agent build", got)
+	}
+}
+
+func estP(m int64) *int64 { v := m * 60; return &v }
+
+func TestExpectingBundle(t *testing.T) {
+	// Verifies: FLT-DLV-23.04
+	at := func(h, m int) string { return time.Date(2026, 11, 25, h, m, 0, 0, time.UTC).Format(time.RFC3339) }
+	in := deliveryInput{now: time.Date(2026, 11, 25, 18, 50, 0, 0, time.UTC)}
+	pending := func(sha string, pr int, rebuiltIn *DeliveryCommitRef) DeliveryChange {
+		return DeliveryChange{SHA: sha, ShortSHA: sha, PR: pr, Builds: []DeliveryCheck{{Component: "api-server"}}, Stages: []DeliveryStage{
+			{Key: stageMerged, State: StagePassed, FinishedAt: at(18, 42)},
+			{Key: stageBuild, State: StageRunning, StartedAt: at(18, 42), EstimateSeconds: estP(14), Components: []string{"api-server"}, RebuiltIn: rebuiltIn},
+			{Key: stagePolicy, State: StageNotStarted, EstimateSeconds: estP(5)},
+			{Key: stageRelease, State: StageNotStarted, EstimateSeconds: estP(15)},
+		}}
+	}
+	// Newest first, as in the payload. c1190's failed build was superseded
+	// by c1192's, so both ride one bundle.
+	shipped := pending("c1189", 1189, nil)
+	shipped.Bundle = &DeliveryBundle{Digest: "sha256:x"}
+	changes := []DeliveryChange{
+		pending("c1192", 1192, nil),
+		pending("c1190", 1190, &DeliveryCommitRef{SHA: "c1192"}),
+		shipped,
+	}
+	got := expectingBundles(in, changes)
+	if len(got) != 1 {
+		t.Fatalf("expecting = %+v, want one line for the shared bundle", got)
+	}
+	e := got[0]
+	// 6 min of the build left, then 5 and 15: 26 min from 18:50.
+	if e.Kind != nextExpecting || e.At != at(19, 16) || len(e.Changes) != 2 || e.Changes[0].PR != 1190 || e.Changes[1].PR != 1192 {
+		t.Errorf("expecting = %+v, want #1190 and #1192 about 19:16", e)
+	}
+	// An unknown estimate omits the time.
+	changes[0].Stages[3].EstimateSeconds = nil
+	if got := expectingBundles(in, changes[:1]); len(got) != 1 || got[0].At != "" {
+		t.Errorf("expecting = %+v, want no time without the Release estimate", got)
+	}
+}
+
+func TestRenovateEvents(t *testing.T) {
+	// Verifies: FLT-DLV-23.05
+	in := deliveryInput{now: time.Date(2026, 11, 25, 19, 12, 0, 0, time.UTC)}
+	at := func(m int) string { return time.Date(2026, 11, 25, 19, m, 0, 0, time.UTC).Format(time.RFC3339) }
+	train := []DeliveryTrainBundle{
+		{Digest: "sha256:old", Version: "v1", Locked: true},
+		{Digest: "sha256:b", Version: "v2", PublishedAt: at(9), Changed: []DeliveryComponentRev{{Component: "api-server"}}},
+		{Inferred: true},
+	}
+	est := map[string]PhaseEstimate{stageGitOps: {MedianSeconds: 360}}
+	got := renovateEvents(in, train, est)
+	if len(got) != 1 || got[0].State != renovateWaiting || got[0].Digest != "sha256:b" || got[0].At != at(15) {
+		t.Fatalf("renovate = %+v, want B waiting, locked about 19:15", got)
+	}
+	in.bundlePR = &BundlePR{Number: 2951, Checks: "running", CreatedAt: at(10)}
+	in.bundlePRDig = "sha256:b"
+	got = renovateEvents(in, train, est)
+	if len(got) != 1 || got[0].State != renovateRunning || got[0].PR != 2951 || got[0].At != at(16) {
+		t.Errorf("renovate = %+v, want PR #2951 open, checks running, locked about 19:16", got)
+	}
+	in.bundlePR.Checks = "failed"
+	if got = renovateEvents(in, train, est); got[0].State != renovateFailed || got[0].At != "" {
+		t.Errorf("renovate = %+v, want failed with no expected time", got)
+	}
+}
+
+func TestRenovateStage(t *testing.T) {
+	// Verifies: FLT-DLV-07.01, FLT-DLV-07.02
+	in := compInput()
+	// Only b1 is locked: c2's first bundle b2 waits for Renovate.
+	in.lockedSet = map[string]bool{in.bundles[0].Digest: true}
+	in.lockCommits = in.lockCommits[1:]
+	in.published[in.bundles[1].Tag] = mustTime(tm(30))
+	if s := stage(t, change(t, payloadOf(in), "c2"), stageGitOps); s.State != StageWaiting || s.Reason != reasonWaitingBundlePR || s.StartedAt != tm(30) {
+		t.Errorf("c2 renovate = %+v, want Waiting for Renovate since publication at %s", s, tm(30))
+	}
+	// The open pull request proposes b3, which contains c2.
+	in.bundlePR = &BundlePR{Number: 2951, Checks: "running", CreatedAt: tm(33)}
+	in.bundlePRDig = in.bundles[2].Digest
+	if s := stage(t, change(t, payloadOf(in), "c2"), stageGitOps); s.State != StageRunning || s.PR != 2951 || s.Checks != "running" || s.StartedAt != tm(33) {
+		t.Errorf("c2 renovate = %+v, want Running, PR #2951 opened at %s", s, tm(33))
+	}
+	in.bundlePR.Checks = "failed"
+	if s := stage(t, change(t, payloadOf(in), "c2"), stageGitOps); s.State != StageFailed || s.PR != 2951 {
+		t.Errorf("c2 renovate = %+v, want Failed, PR #2951 checks failed", s)
+	}
+}
+
+func TestChangesNewestFirst(t *testing.T) {
+	// Verifies: FLT-DLV-03.03
+	in := compInput()
+	listed, _ := selectWindow(in)
+	slices.Reverse(listed)
+	p := buildDelivery(in, listed, 0)
+	var got []string
+	for _, c := range p.Changes {
+		got = append(got, c.SHA)
+	}
+	if !slicesEqual(got, []string{"c5", "c4", "c3", "c2", "c1"}) {
+		t.Errorf("changes = %v, want newest first", got)
 	}
 }

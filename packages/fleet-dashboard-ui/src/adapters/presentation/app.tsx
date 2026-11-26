@@ -7,8 +7,12 @@
 // hidden). Holds no fleet knowledge: everything is derived from the payloads.
 
 import {
+  Button,
+  Flex,
+  FlexItem,
   Masthead,
   MastheadBrand,
+  MastheadContent,
   MastheadMain,
   Page,
   PageSection,
@@ -16,10 +20,12 @@ import {
   StackItem,
   Content,
   Tab,
+  TabContent,
   TabTitleText,
   Tabs,
 } from "@patternfly/react-core";
-import { useMemo } from "react";
+import { LayerGroupIcon } from "@patternfly/react-icons";
+import { useMemo, useRef, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
 import {
@@ -41,16 +47,20 @@ import type { FleetData } from "../../domain/fleet";
 import type { PromotionData } from "../../domain/promotion";
 import type { TopologyData } from "../../domain/topology";
 import { messages } from "../../messages";
-import { AgentSdlcView } from "./agent-sdlc/agent-sdlc-view";
+import { AgentSdlcView, ShippedSection } from "./agent-sdlc/agent-sdlc-view";
 import { deliveryMessages } from "./delivery/delivery-messages";
 import { DeliveryTab } from "./delivery/delivery-view";
 import { E2eRunView } from "./e2e-run/e2e-run-view";
+import { DeployedBundles } from "./map/deployed-bundles";
 import { FreightBar } from "./map/freight-bar";
 import { TopologyMap } from "./map/topology-map";
 import { PlaneSection } from "./plane-section";
 import { PromotionTable } from "./promotion-table";
 import { SessionExpired } from "./session-expired";
 import styles from "./app.module.css";
+
+// Links the masthead toggle to the freight bar it shows (aria-controls).
+const FREIGHT_BAR_ID = "glass-freight-bar";
 
 const EMPTY_FLEET: FleetData = { instances: [] };
 const EMPTY_TOPOLOGY: TopologyData = {};
@@ -130,6 +140,18 @@ export function App(): React.ReactElement {
     [sdlcAgentsData],
   );
 
+  // The tab bar sits in the masthead, to the right of the title (SDLC-VIS-07); its
+  // panels render in the page body, linked through these refs (PatternFly's
+  // separate tab content pattern).
+  const mapTabRef = useRef<HTMLElement>(null);
+  // The freight bar starts hidden to leave room for the tab content; a masthead
+  // button shows it. A view preference, not navigation state, so it is not in the
+  // URL (SDLC-VIS-07).
+  const [freightShown, setFreightShown] = useState(false);
+  const sdlcTabRef = useRef<HTMLElement>(null);
+  const e2eTabRef = useRef<HTMLElement>(null);
+  const deliveryTabRef = useRef<HTMLElement>(null);
+
   // A stale session (any API 401, detected in the query cache) replaces the whole dashboard
   // with a single sign-in prompt rather than a grid of generic error panels. Hooks above
   // still run (rules of hooks); we just short-circuit the render.
@@ -138,7 +160,7 @@ export function App(): React.ReactElement {
   }
 
   const masthead = (
-    <Masthead>
+    <Masthead className={styles.masthead}>
       <MastheadMain>
         <MastheadBrand>
           <Content component="h1">
@@ -146,24 +168,15 @@ export function App(): React.ReactElement {
           </Content>
         </MastheadBrand>
       </MastheadMain>
-    </Masthead>
-  );
-
-  return (
-    <Page masthead={masthead} isContentFilled>
-      <PageSection isFilled hasBodyWrapper={false} className={styles.section}>
-        <Stack hasGutter className={styles.stack}>
-          {/* The single shared freight bar, in the same location above both tabs. */}
-          <StackItem>
-            <FreightBar
-              releaseByDigest={promotionData.releaseByDigest}
-              nodes={model.nodes}
-              selectedSeed={selectedBundleSeed}
-              onSelectBundle={onSelectBundle}
-            />
-          </StackItem>
-          <StackItem isFilled className={styles.mapItem}>
+      <MastheadContent>
+        <Flex
+          className={styles.mastheadRow}
+          alignItems={{ default: "alignItemsCenter" }}
+          flexWrap={{ default: "nowrap" }}
+        >
+          <FlexItem className={styles.tabsItem}>
             <Tabs
+              className={styles.tabs}
               activeKey={activeTab}
               onSelect={(_event, key) => {
                 navigate({ type: "tab", tab: key as typeof activeTab });
@@ -172,85 +185,191 @@ export function App(): React.ReactElement {
             >
               <Tab
                 eventKey="map"
+                tabContentId="glass-tab-map"
+                tabContentRef={mapTabRef}
                 title={
                   <TabTitleText>
                     <FormattedMessage {...messages.sdlcTabFleetMap} />
                   </TabTitleText>
                 }
-              >
-                <PlaneSection
-                  titleMessage={messages.sectionMap}
-                  query={promotion}
-                >
-                  {(data) => (
-                    <TopologyMap
-                      e2e={{
-                        promotion: promotionData,
-                        data: e2e.data?.data,
-                        unavailable: e2e.isError || e2e.data?.stale,
-                        showHistoryLink: true,
-                      }}
-                      promotion={data}
-                      fleet={fleetData}
-                      topology={topologyData}
-                      selectedBundleSeed={selectedBundleSeed}
-                      onSelectBundle={onSelectBundle}
-                      agentsByEnv={agentsByEnvMap}
-                      agentsPlaneStale={sdlcAgents.data?.stale ?? false}
-                    />
-                  )}
-                </PlaneSection>
-              </Tab>
+              />
               <Tab
                 eventKey="sdlc"
+                tabContentId="glass-tab-sdlc"
+                tabContentRef={sdlcTabRef}
                 title={
                   <TabTitleText>
                     <FormattedMessage {...messages.sdlcTabAgent} />
                   </TabTitleText>
                 }
-              >
-                <PlaneSection titleMessage={messages.sdlcSection} query={sdlc}>
-                  {(data) => (
-                    <AgentSdlcView
-                      data={data}
-                      selectedBundleSeed={selectedBundleSeed}
-                      agents={agentByName}
-                      planeStale={sdlcAgents.data?.stale ?? false}
-                    />
-                  )}
-                </PlaneSection>
-              </Tab>
+              />
               <Tab
                 eventKey="e2e"
+                tabContentId="glass-tab-e2e"
+                tabContentRef={e2eTabRef}
                 title={
                   <TabTitleText>
                     <FormattedMessage {...messages.e2eTabTitle} />
                   </TabTitleText>
                 }
-              >
-                <PlaneSection
-                  titleMessage={messages.e2eSection}
-                  query={e2e}
-                  hideTitle
-                >
-                  {(data) => (
-                    <E2eRunView data={data} promotion={promotionData} />
-                  )}
-                </PlaneSection>
-              </Tab>
+              />
               <Tab
                 eventKey="delivery"
+                tabContentId="glass-tab-delivery"
+                tabContentRef={deliveryTabRef}
                 title={
                   <TabTitleText>
                     <FormattedMessage {...deliveryMessages.tabTitle} />
                   </TabTitleText>
                 }
-              >
-                {/* Mounted only while selected, so the delivery plane is polled
-                    only when someone is looking at it. */}
-                {activeTab === "delivery" ? <DeliveryTab /> : null}
-              </Tab>
+              />
             </Tabs>
+          </FlexItem>
+          {/* Deployed bundles stay visible while the freight bar is hidden, and the
+              toggle shows or hides the bar (SDLC-VIS-07). */}
+          <FlexItem align={{ default: "alignRight" }}>
+            <Flex
+              alignItems={{ default: "alignItemsCenter" }}
+              flexWrap={{ default: "nowrap" }}
+            >
+              <DeployedBundles
+                releaseByDigest={promotionData.releaseByDigest}
+                nodes={model.nodes}
+                selectedSeed={selectedBundleSeed}
+                onSelectBundle={onSelectBundle}
+              />
+              <Button
+                variant="secondary"
+                icon={<LayerGroupIcon />}
+                aria-expanded={freightShown}
+                aria-controls={FREIGHT_BAR_ID}
+                onClick={() => {
+                  setFreightShown((shown) => !shown);
+                }}
+              >
+                <FormattedMessage {...messages.freightToggle} />
+              </Button>
+            </Flex>
+          </FlexItem>
+        </Flex>
+      </MastheadContent>
+    </Masthead>
+  );
+
+  return (
+    <Page masthead={masthead} isContentFilled>
+      <PageSection isFilled hasBodyWrapper={false} className={styles.section}>
+        <Stack hasGutter className={styles.stack}>
+          {/* The single shared freight bar, in the same location above every tab,
+              shown only when the masthead toggle opens it (SDLC-VIS-07). */}
+          {freightShown ? (
+            <StackItem id={FREIGHT_BAR_ID}>
+              <FreightBar
+                releaseByDigest={promotionData.releaseByDigest}
+                nodes={model.nodes}
+                selectedSeed={selectedBundleSeed}
+                onSelectBundle={onSelectBundle}
+              />
+            </StackItem>
+          ) : null}
+          <StackItem isFilled className={styles.mapItem}>
+            <TabContent
+              eventKey="map"
+              id="glass-tab-map"
+              ref={mapTabRef}
+              hidden={activeTab !== "map"}
+            >
+              <PlaneSection
+                titleMessage={messages.sectionMap}
+                query={promotion}
+                isPlain
+
+                hideTitle
+              >
+                {(data) => (
+                  <TopologyMap
+                    e2e={{
+                      promotion: promotionData,
+                      data: e2e.data?.data,
+                      unavailable: e2e.isError || e2e.data?.stale,
+                      showHistoryLink: true,
+                    }}
+                    promotion={data}
+                    fleet={fleetData}
+                    topology={topologyData}
+                    selectedBundleSeed={selectedBundleSeed}
+                    onSelectBundle={onSelectBundle}
+                    agentsByEnv={agentsByEnvMap}
+                    agentsPlaneStale={sdlcAgents.data?.stale ?? false}
+                  />
+                )}
+              </PlaneSection>
+            </TabContent>
+            <TabContent
+              eventKey="sdlc"
+              id="glass-tab-sdlc"
+              ref={sdlcTabRef}
+              hidden={activeTab !== "sdlc"}
+            >
+              <PlaneSection
+                titleMessage={messages.sdlcSection}
+                query={sdlc}
+                isPlain
+
+                hideTitle
+              >
+                {(data) => (
+                  <AgentSdlcView
+                    data={data}
+                    selectedBundleSeed={selectedBundleSeed}
+                    agents={agentByName}
+                    planeStale={sdlcAgents.data?.stale ?? false}
+                  />
+                )}
+              </PlaneSection>
+            </TabContent>
+            <TabContent
+              eventKey="e2e"
+              id="glass-tab-e2e"
+              ref={e2eTabRef}
+              hidden={activeTab !== "e2e"}
+            >
+              <PlaneSection
+                titleMessage={messages.e2eSection}
+                query={e2e}
+                hideTitle
+                isPlain
+              >
+                {(data) => <E2eRunView data={data} promotion={promotionData} />}
+              </PlaneSection>
+            </TabContent>
+            <TabContent
+              eventKey="delivery"
+              id="glass-tab-delivery"
+              ref={deliveryTabRef}
+              hidden={activeTab !== "delivery"}
+            >
+              {/* Mounted only while selected, so the delivery plane is polled
+                    only when someone is looking at it. */}
+              {activeTab === "delivery" ? (
+                <DeliveryTab
+                  shipped={
+                    <PlaneSection
+                      titleMessage={messages.sdlcMatrixTitle}
+                      query={sdlc}
+                      hideTitle
+                    >
+                      {(data) => (
+                        <ShippedSection
+                          data={data}
+                          selectedBundleSeed={selectedBundleSeed}
+                        />
+                      )}
+                    </PlaneSection>
+                  }
+                />
+              ) : null}
+            </TabContent>
           </StackItem>
           <StackItem>
             <div style={srOnly}>
