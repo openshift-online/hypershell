@@ -82,7 +82,7 @@ function renderRetried() {
           },
         }}
         selectedSha={SHA}
-        nowMs={Date.parse("2026-11-02T00:00:00Z")}
+        nowMs={Date.parse("2026-11-01T23:30:00Z")}
         onNavigate={() => undefined}
         onRefresh={() => undefined}
       />
@@ -144,7 +144,7 @@ function renderEnv(
           },
         }}
         selectedSha={SHA}
-        nowMs={Date.parse("2026-11-02T00:00:00Z")}
+        nowMs={Date.parse("2026-11-01T23:30:00Z")}
         onNavigate={onNavigate}
         shipped={shipped}
         onRefresh={() => undefined}
@@ -319,7 +319,7 @@ function renderFailedBuild() {
           },
         }}
         selectedSha={null}
-        nowMs={Date.parse("2026-11-02T00:00:00Z")}
+        nowMs={Date.parse("2026-11-01T23:30:00Z")}
         onNavigate={() => undefined}
         onRefresh={() => undefined}
       />
