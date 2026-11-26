@@ -57,21 +57,29 @@ func TestOwnImagePinsDigestOnlyForTheSpecRepository(t *testing.T) {
 		{"other repository falls back to the spec image", "quay.io/x/cp:latest", "quay.io/y/cp@sha256:0123", "quay.io/x/cp:latest"},
 		{"bare digest falls back to the spec image", "quay.io/x/cp:latest", "sha256:0123", "quay.io/x/cp:latest"},
 		{"empty image ID falls back to the spec image", "quay.io/x/cp:latest", "", "quay.io/x/cp:latest"},
+		{"digest with no repository falls back to the spec image", "quay.io/x/cp:latest", "@sha256:0123", "quay.io/x/cp:latest"},
+		{"unparsable image ID repository falls back to the spec image", "quay.io/x/cp:latest", "quay.io/X/CP@sha256:0123", "quay.io/x/cp:latest"},
+		{"unparsable spec image is kept unchanged", "quay.io/X/CP:latest", "quay.io/x/cp@sha256:0123", "quay.io/X/CP:latest"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			pod := &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{Name: "hypershell-controller-0"},
 				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "controller", Image: tc.spec}}},
-				Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{
-					Name: "controller", ImageID: tc.imageID,
-				}}},
+				Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+					{Name: "other", ImageID: "quay.io/x/cp@sha256:ffff"},
+					{Name: "controller", ImageID: tc.imageID},
+				}},
 			}
 			got, err := imageFromPod(pod, "controller")
 			if err != nil || got != tc.want {
 				t.Fatalf("own image = %q, %v; want %q", got, err, tc.want)
 			}
 		})
+	}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "hypershell-controller-0"}}
+	if got, err := imageFromPod(pod, "controller"); err == nil {
+		t.Fatalf("a pod without the container must be an error, got %q", got)
 	}
 }
 
