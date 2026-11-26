@@ -16,6 +16,32 @@ export const deliveryMessages = defineMessages({
     defaultMessage: "Data as of {time}",
     description: "When the delivery data was generated.",
   },
+  refreshing: {
+    id: "fleet.delivery.refreshing",
+    defaultMessage: "Refreshing...",
+    description:
+      "Shown in place of the data time while the delivery data is read again.",
+  },
+  loadingTitle: {
+    id: "fleet.delivery.source.loading.title",
+    defaultMessage: "Loading delivery data",
+    description:
+      "Informational alert title while sources load after a restart.",
+  },
+  loadingBody: {
+    id: "fleet.delivery.source.loading.body",
+    defaultMessage:
+      "{sources} {count, plural, one {is} other {are}} still loading after a restart. Data arrives in about a minute.",
+    description:
+      "Informational alert body naming the sources still loading after a restart.",
+  },
+  nowLoading: {
+    id: "fleet.delivery.now.loading",
+    defaultMessage:
+      "Loading - {sources} {count, plural, one {is} other {are}} still loading",
+    description:
+      "Pipeline now: sources still loading after a restart (FLT-DLV-13.04).",
+  },
   refresh: {
     id: "fleet.delivery.refresh",
     defaultMessage: "Refresh",

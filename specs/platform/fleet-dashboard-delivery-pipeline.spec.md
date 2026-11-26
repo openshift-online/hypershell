@@ -95,6 +95,13 @@ in that order. The tab SHALL NOT
 show a separate Now and next summary: each change panel carries its own state,
 next step, and arrival times (FLT-DLV-10).
 
+The refresh action SHALL read the delivery plane again. While any read of the
+plane is in progress, whether from the refresh action or the regular poll, the
+refresh icon SHALL turn, the header SHALL read "Refreshing..." in place of
+"Data as of", and the button SHALL report itself busy (`aria-busy`). The
+turning SHALL last long enough to be seen and SHALL stop under
+`prefers-reduced-motion`; the text change still marks the read.
+
 #### Scenario: FLT-DLV-01.01 -- Tab reachable by path
 
 - GIVEN an authorized operator
@@ -108,6 +115,13 @@ next step, and arrival times (FLT-DLV-10).
 - WHEN the operator opens the Delivery tab
 - THEN the body SHALL show an empty state stating that the delivery source is not configured
 - AND the other tabs SHALL be unaffected
+
+#### Scenario: FLT-DLV-01.03 -- Refresh shows progress
+
+- GIVEN the Delivery tab shows "Data as of 15:04"
+- WHEN the operator activates the refresh action
+- THEN the refresh icon SHALL turn and the header SHALL read "Refreshing..."
+- AND when the read finishes the header SHALL show the time of the new data
 
 ### Requirement: FLT-DLV-02 -- Change window
 
@@ -826,6 +840,15 @@ the affected stages, and SHALL keep every other stage live.
 - **Stale source.** The BFF SHALL serve that source's last good data with
   `stale: true`. Affected cells keep their last known state and the alert
   states the time of the last good read.
+- **Source still loading after a restart.** For the first five minutes after
+  the BFF starts, a source that has not been read yet and has reported no error
+  of its own SHALL be marked `loading: true` instead of stale. The GitOps lock
+  history and the promotion history count as loading while the promotion
+  source they come from is loading. The tab SHALL show one informational alert
+  naming the loading sources and stating that data arrives in about a minute,
+  in place of their warning alerts, and the Pipeline now panel SHALL read
+  Loading instead of Unknown for the answers they feed. A source still unread
+  after five minutes SHALL be reported as never succeeded.
 - **Shared GitOps lock history.** The delivery plane reads the release lock
   history that the promotion refresh keeps, without a call of its own. When
   that history is older than three promotion refresh intervals, the GitOps
@@ -862,6 +885,14 @@ for an API error.
 - WHEN the tab renders at 15:20
 - THEN the change list and the Build and Policy check cells SHALL show their 15:02 state
 - AND a warning alert SHALL state that build data is from 15:02
+
+#### Scenario: FLT-DLV-13.04 -- Restart shows loading, not unavailable
+
+- GIVEN the BFF started at 15:03 and the promotion source has not finished its first read
+- WHEN the tab renders at 15:05
+- THEN the GitOps, promotion, and promotion history sources SHALL be loading
+- AND the tab SHALL show one informational loading alert and no warning alert for them
+- AND the Pipeline now panel SHALL read Loading
 
 #### Scenario: FLT-DLV-13.03 -- GitOps lock history not refreshed
 

@@ -311,9 +311,27 @@ describe("source degradation (FLT-DLV-13)", () => {
     const d: DeliveryData = {
       ...data([]),
       sources: {
-        promotion: { stale: true, never: true, error: null, lastSuccess: null },
-        upstream: { stale: false, never: false, error: null, lastSuccess: "x" },
-        gitops: { stale: true, never: false, error: "e", lastSuccess: "x" },
+        promotion: {
+          stale: true,
+          never: true,
+          loading: false,
+          error: null,
+          lastSuccess: null,
+        },
+        upstream: {
+          stale: false,
+          never: false,
+          loading: false,
+          error: null,
+          lastSuccess: "x",
+        },
+        gitops: {
+          stale: true,
+          never: false,
+          loading: false,
+          error: "e",
+          lastSuccess: "x",
+        },
       },
     };
     expect(degradedSources(d).map((s) => s.key)).toEqual([
@@ -326,7 +344,13 @@ describe("source degradation (FLT-DLV-13)", () => {
     const never: DeliveryData = {
       ...data([]),
       sources: {
-        upstream: { stale: true, never: true, error: "e", lastSuccess: null },
+        upstream: {
+          stale: true,
+          never: true,
+          loading: false,
+          error: "e",
+          lastSuccess: null,
+        },
       },
     };
     expect(changeListUnavailable(never)).toBe(true);
@@ -595,6 +619,7 @@ describe("nowUnknown (FLT-DLV-23)", () => {
           history: {
             stale: true,
             never: true,
+            loading: false,
             error: "x",
             lastSuccess: null,
           },

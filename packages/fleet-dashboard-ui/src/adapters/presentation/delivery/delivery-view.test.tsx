@@ -555,3 +555,88 @@ describe("DeliveryView layout (FLT-DLV-25)", () => {
     expect(screen.queryByRole("button", { name: /Show bundle/ })).toBeNull();
   });
 });
+
+function renderSources(
+  sources: Record<string, unknown>,
+  refreshing = false,
+): void {
+  const data = mapDelivery({
+    enabled: true,
+    stages: [],
+    changes: [],
+    sources: {
+      upstream: {
+        stale: false,
+        never: false,
+        lastSuccess: "2026-11-01T15:04:00Z",
+      },
+      ...sources,
+    },
+  });
+  render(
+    <IntlProvider locale="en" defaultLocale="en" timeZone="UTC">
+      <DeliveryView
+        state={{
+          status: "ready",
+          plane: {
+            data,
+            generatedAt: "2026-11-01T15:04:00Z",
+            stale: false,
+            error: null,
+          },
+        }}
+        selectedSha={null}
+        nowMs={Date.parse("2026-11-01T15:05:00Z")}
+        onNavigate={() => undefined}
+        onRefresh={() => undefined}
+        refreshing={refreshing}
+      />
+    </IntlProvider>,
+  );
+}
+
+describe("DeliveryView loading and refresh (FLT-DLV-13, FLT-DLV-01)", () => {
+  // Verifies: FLT-DLV-13.04
+  it("shows one loading alert, no warnings, while sources load after a restart", () => {
+    const loading = { stale: false, never: true, loading: true };
+    renderSources({ gitops: loading, promotion: loading, history: loading });
+    expect(screen.getByText("Loading delivery data")).toBeDefined();
+    expect(
+      screen.getByText(
+        "GitOps repository, Promotion data, and Promotion history are still loading after a restart. Data arrives in about a minute.",
+      ),
+    ).toBeDefined();
+    expect(screen.queryByText(/unavailable/)).toBeNull();
+    expect(
+      screen.getByText(
+        "Loading - GitOps repository, Promotion data, and Promotion history are still loading",
+      ),
+    ).toBeDefined();
+  });
+
+  // Verifies: FLT-DLV-13.04
+  it("still warns about a source that failed after the loading grace", () => {
+    renderSources({
+      promotion: { stale: true, never: true, error: "Unauthorized" },
+    });
+    expect(screen.getByText("Promotion data unavailable")).toBeDefined();
+    expect(screen.queryByText("Loading delivery data")).toBeNull();
+  });
+
+  // Verifies: FLT-DLV-01.03
+  it("reads Refreshing and marks the button busy while the plane is read", () => {
+    renderSources({}, true);
+    expect(screen.getByText("Refreshing...")).toBeDefined();
+    expect(screen.queryByText(/Data as of/)).toBeNull();
+    const button = screen.getByRole("button", { name: "Refresh" });
+    expect(button.getAttribute("aria-busy")).toBe("true");
+  });
+
+  // Verifies: FLT-DLV-01.03
+  it("shows the data time and an idle button when no read is in progress", () => {
+    renderSources({});
+    expect(screen.getByText("Data as of 15:04")).toBeDefined();
+    const button = screen.getByRole("button", { name: "Refresh" });
+    expect(button.getAttribute("aria-busy")).toBe("false");
+  });
+});

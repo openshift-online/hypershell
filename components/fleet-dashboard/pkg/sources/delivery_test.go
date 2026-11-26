@@ -725,6 +725,34 @@ func TestDeliveryWaitsForBuildsOnNewChange(t *testing.T) {
 	}
 }
 
+func TestDeliveryRestartLoading(t *testing.T) {
+	// Verifies: FLT-DLV-13.04
+	f := newFixture(t)
+	f.promo = nil // the promotion refresh has not finished its first read
+	f.lock.ok = false
+	f.lock.timeline = nil
+	start := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	f.d.now = func() time.Time { return start }
+	p := f.refresh(t)
+	for _, key := range []string{srcPromotion, srcGitOps, srcHistory} {
+		if st := p.Sources[key]; !st.Loading || st.Stale || st.Error != "" {
+			t.Errorf("%s status after a start = %+v, want loading", key, st)
+		}
+	}
+	if st := p.Sources[srcUpstream]; st.Loading {
+		t.Errorf("upstream read fine but reads loading: %+v", st)
+	}
+
+	// Still unread five minutes later: never succeeded, not loading.
+	f.d.now = func() time.Time { return start.Add(6 * time.Minute) }
+	p = f.refresh(t)
+	for _, key := range []string{srcPromotion, srcGitOps, srcHistory} {
+		if st := p.Sources[key]; st.Loading || !st.Never || !st.Stale {
+			t.Errorf("%s status after the grace = %+v, want never and stale", key, st)
+		}
+	}
+}
+
 func TestDeliveryGitOpsStaleWhenLockHistoryIsOld(t *testing.T) {
 	// Verifies: FLT-DLV-13.03
 	f := newFixture(t) // promotion refresh 30s by default: stale after 90s

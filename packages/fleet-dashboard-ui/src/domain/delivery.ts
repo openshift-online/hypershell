@@ -233,6 +233,8 @@ export interface DeliverySourceStatus {
   readonly stale: boolean;
   /** The source has never succeeded. */
   readonly never: boolean;
+  /** Still waiting for its first read after a restart (FLT-DLV-13.04). */
+  readonly loading: boolean;
   readonly error: string | null;
   readonly lastSuccess: string | null;
 }
@@ -859,9 +861,10 @@ export function nowUnknown(data: DeliveryData): {
   readonly answers: readonly NowAnswer[];
   readonly sources: readonly DeliverySourceKey[];
 } | null {
-  const down = DELIVERY_SOURCE_KEYS.filter(
-    (k) => data.sources[k]?.never === true,
-  );
+  const down = DELIVERY_SOURCE_KEYS.filter((k) => {
+    const status = data.sources[k];
+    return status !== undefined && status.never && !status.loading;
+  });
   if (down.length === 0) {
     return null;
   }
@@ -871,6 +874,13 @@ export function nowUnknown(data: DeliveryData): {
   return { answers, sources: down };
 }
 
+/** Sources still loading after a restart (FLT-DLV-13.04). */
+export function loadingSources(
+  data: DeliveryData,
+): readonly DeliverySourceKey[] {
+  return DELIVERY_SOURCE_KEYS.filter((k) => data.sources[k]?.loading === true);
+}
+
 /** Sources to warn about: stale or never succeeded (FLT-DLV-13). */
 export function degradedSources(
   data: DeliveryData,
@@ -878,7 +888,12 @@ export function degradedSources(
   const out: { key: DeliverySourceKey; status: DeliverySourceStatus }[] = [];
   for (const key of DELIVERY_SOURCE_KEYS) {
     const status = data.sources[key];
-    if (status !== undefined && (status.stale || status.never)) {
+    // A source still loading gets the loading alert instead (FLT-DLV-13.04).
+    if (
+      status !== undefined &&
+      !status.loading &&
+      (status.stale || status.never)
+    ) {
       out.push({ key, status });
     }
   }

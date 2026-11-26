@@ -148,6 +148,7 @@ interface WireChange {
 interface WireSource {
   readonly stale?: boolean;
   readonly never?: boolean;
+  readonly loading?: boolean;
   readonly error?: string;
   readonly lastSuccess?: string;
 }
@@ -632,6 +633,7 @@ function mapSources(
     out[key] = {
       stale: s.stale === true,
       never: s.never === true,
+      loading: s.loading === true,
       error: str(s.error),
       lastSuccess: str(s.lastSuccess),
     };

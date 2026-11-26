@@ -50,6 +50,7 @@ import {
   SOURCE_STAGES,
   changeListUnavailable,
   degradedSources,
+  loadingSources,
   elapsedMs,
   findChange,
   firstBundleOutcome,
@@ -107,6 +108,8 @@ export interface DeliveryViewProps {
   readonly nowMs: number;
   readonly onNavigate: (action: NavAction) => void;
   readonly onRefresh: () => void;
+  /** A read of the plane is in progress (FLT-DLV-01.03). */
+  readonly refreshing?: boolean;
   /** The Shipped section (FLT-DLV-25), drawn between Pipeline now and the strip. */
   readonly shipped?: React.ReactNode;
 }
@@ -1717,11 +1720,31 @@ function ChangeStrip({
 function SourceAlerts({ data }: { readonly data: DeliveryData }) {
   const intl = useIntl();
   const degraded = degradedSources(data);
-  if (degraded.length === 0) {
+  const loading = loadingSources(data);
+  if (degraded.length === 0 && loading.length === 0) {
     return null;
   }
   return (
     <>
+      {/* Sources still loading after a restart share one informational alert
+          instead of a warning each (FLT-DLV-13.04). */}
+      {loading.length > 0 ? (
+        <StackItem>
+          <Alert
+            isInline
+            customIcon={<Spinner size="md" aria-hidden="true" />}
+            title={intl.formatMessage(m.loadingTitle)}
+            variant="info"
+          >
+            {intl.formatMessage(m.loadingBody, {
+              sources: intl.formatList(
+                loading.map((k) => intl.formatMessage(SOURCE_LABEL[k])),
+              ),
+              count: loading.length,
+            })}
+          </Alert>
+        </StackItem>
+      ) : null}
       {degraded.map(({ key, status }) => {
         const source = intl.formatMessage(SOURCE_LABEL[key]);
         const stageNames =
@@ -1829,7 +1852,7 @@ function Body({
   nowMs,
   onNavigate,
   shipped,
-}: Omit<DeliveryViewProps, "onRefresh">) {
+}: Omit<DeliveryViewProps, "onRefresh" | "refreshing">) {
   const intl = useIntl();
   if (state.status === "loading") {
     return (
@@ -1874,7 +1897,7 @@ function Body({
 
 export function DeliveryView(props: DeliveryViewProps): React.ReactElement {
   const intl = useIntl();
-  const { state, onRefresh } = props;
+  const { state, onRefresh, refreshing = false } = props;
   const asOf =
     state.status === "ready" && state.plane.data.enabled
       ? formatClock(intl, state.plane.generatedAt)
@@ -1892,12 +1915,17 @@ export function DeliveryView(props: DeliveryViewProps): React.ReactElement {
         >
           <FlexItem>
             <Content>
-              {asOf ? (
+              {/* While the plane is read, the time gives way to
+                  "Refreshing..." (FLT-DLV-01.03). */}
+              {refreshing || asOf ? (
                 <Content
                   className="pf-v6-u-text-color-subtle"
                   component="small"
+                  aria-live="polite"
                 >
-                  {intl.formatMessage(m.asOf, { time: asOf })}
+                  {refreshing
+                    ? intl.formatMessage(m.refreshing)
+                    : intl.formatMessage(m.asOf, { time: asOf })}
                 </Content>
               ) : null}
             </Content>
@@ -1905,7 +1933,16 @@ export function DeliveryView(props: DeliveryViewProps): React.ReactElement {
           <FlexItem>
             <Button
               aria-label={intl.formatMessage(m.refresh)}
-              icon={<SyncAltIcon />}
+              aria-busy={refreshing}
+              icon={
+                <span
+                  className={
+                    refreshing ? styles.refreshSpin : styles.refreshIcon
+                  }
+                >
+                  <SyncAltIcon />
+                </span>
+              }
               variant="plain"
               onClick={onRefresh}
             />
@@ -1938,6 +1975,9 @@ function useNow(intervalMs: number): number {
   return now;
 }
 
+/** Shortest time a requested refresh shows its progress (FLT-DLV-01.03). */
+const REFRESH_HOLD_MS = 800;
+
 /** The Delivery tab wired to the delivery plane and the router. */
 export function DeliveryTab({
   shipped,
@@ -1948,6 +1988,20 @@ export function DeliveryTab({
   const query = useDelivery();
   const { route, navigate } = useRouter();
   const nowMs = useNow(30_000);
+  // Any read after the first, user-triggered or polled, shows as refreshing.
+  // A refresh the operator asks for shows for at least REFRESH_HOLD_MS, so a
+  // quick read is still seen (FLT-DLV-01.03).
+  const [held, setHeld] = useState(false);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(
+    () => () => {
+      clearTimeout(holdTimer.current);
+    },
+    [],
+  );
+  const refreshing = held || (query.isFetching && !query.isPending);
   const state: DeliveryViewState = query.isPending
     ? { status: "loading" }
     : query.isError
@@ -1960,8 +2014,14 @@ export function DeliveryTab({
       nowMs={nowMs}
       onNavigate={navigate}
       onRefresh={() => {
+        setHeld(true);
+        clearTimeout(holdTimer.current);
+        holdTimer.current = setTimeout(() => {
+          setHeld(false);
+        }, REFRESH_HOLD_MS);
         void query.refetch();
       }}
+      refreshing={refreshing}
       shipped={shipped}
     />
   );

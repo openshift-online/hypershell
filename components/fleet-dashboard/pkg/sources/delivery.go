@@ -111,7 +111,18 @@ type DeliverySourceStatus struct {
 	Never       bool   `json:"never"`
 	Error       string `json:"error,omitempty"`
 	LastSuccess string `json:"lastSuccess,omitempty"`
+	// Loading is true while a source not read yet since the BFF started is
+	// still expected to arrive (FLT-DLV-13.04). Never stays true; Stale is false.
+	Loading bool `json:"loading,omitempty"`
 }
+
+// startupGrace is how long after the BFF starts an unread source counts as
+// loading instead of never succeeded (FLT-DLV-13).
+const startupGrace = 5 * time.Minute
+
+// lockNotReadYet is the GitOps status before the promotion refresh first reads
+// the shared lock history.
+const lockNotReadYet = "release lock history not read yet"
 
 // DeliveryChange is one change row.
 type DeliveryChange struct {
@@ -303,6 +314,9 @@ type Delivery struct {
 	hist    map[string]*envHistory
 	histAt  time.Time
 	histErr string
+	// started is when the plane first refreshed: the start of the loading
+	// grace (FLT-DLV-13.04).
+	started time.Time
 	// appName is the Konflux application name, learned from policy check names,
 	// used to shorten component labels.
 	appName string
@@ -467,6 +481,7 @@ func (d *Delivery) Delivery(ctx context.Context) (any, error) {
 	in.checks = d.readChecks(ctx, listed, in)
 	listed = replace(in, listed)
 	in.history, sources[srcHistory] = d.readHistory(ctx, promo, oldestMerge(listed, now), now)
+	d.markLoading(sources, now)
 	d.learnAppName(in.checks)
 	in.appName = d.appName
 
@@ -491,6 +506,39 @@ func status(lastOK time.Time, errText string) DeliverySourceStatus {
 	return s
 }
 
+// markLoading marks the sources that are only waiting for their first read
+// after a start as loading, not as never succeeded (FLT-DLV-13.04). The
+// promotion source loads on its own; the GitOps lock history and the promotion
+// history come from it, so they load while it does.
+func (d *Delivery) markLoading(sources map[string]DeliverySourceStatus, now time.Time) {
+	d.mu.Lock()
+	if d.started.IsZero() {
+		d.started = now
+	}
+	inGrace := now.Sub(d.started) < startupGrace
+	d.mu.Unlock()
+	if !inGrace {
+		return
+	}
+	loading := func(key string) {
+		st := sources[key]
+		st.Loading, st.Stale, st.Error = true, false, ""
+		sources[key] = st
+	}
+	if p := sources[srcPromotion]; p.Never && p.Error == "" {
+		loading(srcPromotion)
+	}
+	if !sources[srcPromotion].Loading {
+		return
+	}
+	if g := sources[srcGitOps]; g.Never && g.Error == lockNotReadYet {
+		loading(srcGitOps)
+	}
+	if h := sources[srcHistory]; h.Never {
+		loading(srcHistory)
+	}
+}
+
 // lockedBundles reads the distinct locked bundles from the shared lock timeline.
 // The promotion refresh keeps that timeline, so a refresh that keeps failing
 // leaves it old without any error here: an old timeline reads stale
@@ -501,7 +549,7 @@ func (d *Delivery) lockedBundles(now time.Time) ([]*Release, []LockCommit, Deliv
 	}
 	tl, at, ok := d.lock.LastLockTimeline()
 	if !ok {
-		return nil, nil, DeliverySourceStatus{Never: true, Stale: true, Error: "release lock history not read yet"}
+		return nil, nil, DeliverySourceStatus{Never: true, Stale: true, Error: lockNotReadYet}
 	}
 	seen := map[string]bool{}
 	var out []*Release

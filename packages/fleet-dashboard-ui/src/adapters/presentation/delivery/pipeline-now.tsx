@@ -12,8 +12,10 @@ import {
   DescriptionListDescription,
   DescriptionListGroup,
   DescriptionListTerm,
+  Flex,
   Grid,
   GridItem,
+  Spinner,
   Stack,
   StackItem,
   Title,
@@ -23,6 +25,7 @@ import { useIntl, type IntlShape } from "react-intl";
 
 import {
   groupLabel,
+  loadingSources,
   nowUnknown,
   type DeliveryData,
   type DeliveryEnvNow,
@@ -412,6 +415,7 @@ export function PipelineNow({
   const intl = useIntl();
   const now = data.now;
   const unknown = nowUnknown(data);
+  const loading = loadingSources(data);
   const items = inFlight(intl, data, nowMs);
   const app = now.appHead;
   const gitops = now.gitopsHead;
@@ -426,6 +430,25 @@ export function PipelineNow({
       </CardHeader>
       <CardBody>
         <Stack hasGutter>
+          {loading.length > 0 ? (
+            <StackItem>
+              <Flex
+                alignItems={{ default: "alignItemsCenter" }}
+                spaceItems={{ default: "spaceItemsSm" }}
+                flexWrap={{ default: "nowrap" }}
+              >
+                <Spinner size="md" aria-hidden="true" />
+                <span>
+                  {intl.formatMessage(m.nowLoading, {
+                    sources: intl.formatList(
+                      loading.map((k) => intl.formatMessage(SOURCE_LABEL[k])),
+                    ),
+                    count: loading.length,
+                  })}
+                </span>
+              </Flex>
+            </StackItem>
+          ) : null}
           {unknown !== null ? (
             <StackItem>
               <StateText
