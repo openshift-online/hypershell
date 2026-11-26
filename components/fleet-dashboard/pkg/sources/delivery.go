@@ -265,6 +265,9 @@ type Delivery struct {
 	upstreamRepo string
 	gitopsRepo   string
 	htmlBase     string
+	// lockMaxAge is how old the shared lock history may be before the GitOps
+	// source reads stale: three promotion refresh intervals (FLT-DLV-13).
+	lockMaxAge time.Duration
 	// Release diagnostics settings (FLT-DLV-20).
 	releaseLogURL string
 	releaseAppURL string
@@ -327,8 +330,13 @@ func newDelivery(c *config.Config, gh DeliveryGitHub, reg BundleRegistry, lock L
 	if window <= 0 {
 		window = 30
 	}
+	promoRefresh := c.RefreshPromotion
+	if promoRefresh <= 0 {
+		promoRefresh = 30 * time.Second
+	}
 	return &Delivery{
 		window:        window,
+		lockMaxAge:    3 * promoRefresh,
 		historyDays:   c.DeliveryHistoryDays,
 		checkApp:      c.DeliveryCheckApp,
 		imageCheck:    c.DeliveryImageCheck,
@@ -377,7 +385,7 @@ func (d *Delivery) Delivery(ctx context.Context) (any, error) {
 	d.mu.Unlock()
 
 	// 2. Locked bundles from the shared lock timeline (no call).
-	locked, lockCommits, gitopsStatus := d.lockedBundles()
+	locked, lockCommits, gitopsStatus := d.lockedBundles(now)
 	sources[srcGitOps] = gitopsStatus
 
 	// 3. Registry tags (one call) and pending bundle contents (one read per new
@@ -484,7 +492,10 @@ func status(lastOK time.Time, errText string) DeliverySourceStatus {
 }
 
 // lockedBundles reads the distinct locked bundles from the shared lock timeline.
-func (d *Delivery) lockedBundles() ([]*Release, []LockCommit, DeliverySourceStatus) {
+// The promotion refresh keeps that timeline, so a refresh that keeps failing
+// leaves it old without any error here: an old timeline reads stale
+// (FLT-DLV-13).
+func (d *Delivery) lockedBundles(now time.Time) ([]*Release, []LockCommit, DeliverySourceStatus) {
 	if d.lock == nil {
 		return nil, nil, DeliverySourceStatus{Never: true, Stale: true, Error: "GitOps repository not configured"}
 	}
@@ -506,6 +517,10 @@ func (d *Delivery) lockedBundles() ([]*Release, []LockCommit, DeliverySourceStat
 		out = append(out, r)
 	}
 	st := DeliverySourceStatus{LastSuccess: at.UTC().Format(time.RFC3339)}
+	if d.lockMaxAge > 0 && now.Sub(at) > d.lockMaxAge {
+		st.Stale = true
+		st.Error = "release lock history not refreshed since " + at.UTC().Format(time.RFC3339)
+	}
 	return out, tl, st
 }
 

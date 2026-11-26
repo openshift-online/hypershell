@@ -826,6 +826,12 @@ the affected stages, and SHALL keep every other stage live.
 - **Stale source.** The BFF SHALL serve that source's last good data with
   `stale: true`. Affected cells keep their last known state and the alert
   states the time of the last good read.
+- **Shared GitOps lock history.** The delivery plane reads the release lock
+  history that the promotion refresh keeps, without a call of its own. When
+  that history is older than three promotion refresh intervals, the GitOps
+  source SHALL be `stale: true` with its last read time, even though the
+  delivery plane itself saw no error. This covers a promotion refresh that
+  fails before it reads the lock history.
 - **Promotion history that has never succeeded.** Stage states SHALL NOT
   change; group promotion times and the change panel's promotion history SHALL be
   Unknown.
@@ -856,6 +862,14 @@ for an API error.
 - WHEN the tab renders at 15:20
 - THEN the change list and the Build and Policy check cells SHALL show their 15:02 state
 - AND a warning alert SHALL state that build data is from 15:02
+
+#### Scenario: FLT-DLV-13.03 -- GitOps lock history not refreshed
+
+- GIVEN the promotion refresh runs every 30 seconds and last read the lock history at 13:09
+- AND every promotion refresh since then failed before reading it
+- WHEN the delivery plane refreshes at 13:55
+- THEN the GitOps source SHALL be stale with its last success at 13:09
+- AND a warning alert SHALL name GitOps and the stages it feeds
 
 ### Requirement: FLT-DLV-14 -- Addressable state
 

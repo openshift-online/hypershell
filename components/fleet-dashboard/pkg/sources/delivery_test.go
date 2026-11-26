@@ -172,6 +172,9 @@ type fakeLock struct {
 	releases map[string]*Release // lock commit sha -> release
 	ok       bool
 	hydrated map[string]*Release // environment-branch commit -> release
+	// readAt is when the promotion refresh last read the timeline; zero means
+	// the fixture's own now, 12:00.
+	readAt time.Time
 }
 
 func (f *fakeLock) ResolveHydrated(_ context.Context, sha string) *Release {
@@ -179,7 +182,11 @@ func (f *fakeLock) ResolveHydrated(_ context.Context, sha string) *Release {
 }
 
 func (f *fakeLock) LastLockTimeline() ([]LockCommit, time.Time, bool) {
-	return f.timeline, time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC), f.ok
+	at := f.readAt
+	if at.IsZero() {
+		at = time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	}
+	return f.timeline, at, f.ok
 }
 
 func (f *fakeLock) ResolveCached(sha string) (*Release, bool) {
@@ -715,6 +722,29 @@ func TestDeliveryWaitsForBuildsOnNewChange(t *testing.T) {
 	f.refresh(t)
 	if f.gh.checkCalls[sha] != before {
 		t.Errorf("an hours-old change with no build was read again")
+	}
+}
+
+func TestDeliveryGitOpsStaleWhenLockHistoryIsOld(t *testing.T) {
+	// Verifies: FLT-DLV-13.03
+	f := newFixture(t) // promotion refresh 30s by default: stale after 90s
+
+	// Read 60 seconds ago: within three refresh intervals, so fresh.
+	f.lock.readAt = time.Date(2026, 11, 1, 11, 59, 0, 0, time.UTC)
+	if st := f.refresh(t).Sources[srcGitOps]; st.Stale || st.Error != "" {
+		t.Errorf("recent lock history status = %+v, want fresh", st)
+	}
+
+	// The promotion refresh has not read it for 46 minutes: stale, with the
+	// time of the last good read, and the locked data is still served.
+	f.lock.readAt = time.Date(2026, 11, 1, 11, 14, 0, 0, time.UTC)
+	p := f.refresh(t)
+	st := p.Sources[srcGitOps]
+	if !st.Stale || st.Never || st.LastSuccess != "2026-11-01T11:14:00Z" || st.Error == "" {
+		t.Errorf("old lock history status = %+v, want stale since 11:14", st)
+	}
+	if c := change(t, p, f.repo.sha(4)); c.Bundle == nil {
+		t.Errorf("stale lock history dropped the locked placement")
 	}
 }
 
