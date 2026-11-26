@@ -1,7 +1,7 @@
 # Fleet Dashboard Map Hub-Spine and Provider-Lane Layout
 
 **Status:** Active
-**Applies to:** `packages/fleet-dashboard-ui` map domain model and layout (`buildMapModel`, `computeLayout`, `orderLanes`) and map presentation
+**Applies to:** `packages/fleet-dashboard-ui` map domain model and layout (`buildMapModel`, `computeLayout`, `orderLanes`) and map presentation; `components/fleet-dashboard` Argo CD Application matching for the promotion plane (`argoByInstance`)
 **Tracks:** [HYPERSHELL-418](https://redhat.atlassian.net/browse/HYPERSHELL-418), [HYPERSHELL-423](https://redhat.atlassian.net/browse/HYPERSHELL-423)
 
 ## Purpose
@@ -208,10 +208,11 @@ release and Argo state from its hub, because GitOps delivers it from the hub's
 cluster. It SHALL carry no promotion gates of its own.
 
 A remote spoke (listed in the hub's topology under `remote_spokes`) that has no
-promotion environment SHALL also get its own node in its hub's column. Nothing
-reports its cluster, provider, release or Argo health, so the node SHALL leave them
-unknown, SHALL group into the unassigned provider lane, and SHALL NOT raise the
-"health unavailable" alarm. No gate waits for it, so the map SHALL NOT draw a
+promotion environment SHALL also get its own node in its hub's column. No
+promotion environment reports its release, so the node SHALL leave the release
+unknown and SHALL NOT raise the "health unavailable" alarm. Its cluster, provider
+and Argo state come from Argo CD when FLT-MAP-09 finds them; otherwise they stay
+unknown and the node groups into the unassigned provider lane. No gate waits for it, so the map SHALL NOT draw a
 change line or a promotion gate line to or from it.
 
 A node's physical cluster is its `cluster` delivery label. A hub, or a co-located
@@ -270,6 +271,74 @@ more of a column's nodes in one provider lane SHALL get a container.
 - WHEN the map is rendered
 - THEN the column's change and gate lines SHALL connect the hub
 - AND no change or gate line SHALL connect node `R`
+
+### Requirement: FLT-MAP-09 -- Each node finds its Argo CD Application by where it deploys
+
+A node's delivery labels (cluster, provider, role, env), Argo health and links come
+from the Argo CD Application that deploys its instance. The dashboard backend SHALL
+match an Application to an instance by where the Application deploys, not by a
+naming rule alone:
+
+1. An Application whose destination namespace is the instance, and whose name is
+   `<namespace>-<instance>` or just `<instance>`, SHALL match that instance.
+2. An Application named `<namespace>-<instance>` SHALL match that instance,
+   whatever its destination namespace.
+
+When several Applications match one instance, the backend SHALL pick, in order:
+the one with a delivery `role` label, then the `<namespace>-<instance>` name, then
+the bare `<instance>` name, then the alphabetically first. A helper Application
+that deploys into an instance's namespace under another name SHALL NOT match.
+
+A node's physical cluster SHALL be its `cluster` delivery label. When the
+Application has no such label, it SHALL be the Application's destination cluster
+name, except Argo CD's `in-cluster` alias.
+
+The promotion payload SHALL list, under `unpromoted`, every instance an
+Application deploys (rule 1) that is not a promotion environment, with what the
+Application reports. Only control-plane Applications SHALL qualify: the
+Application SHALL name a physical cluster, and SHALL either carry a delivery
+`role` label or be named just `<instance>`. The map SHALL use it for a remote spoke without a promotion
+environment (FLT-MAP-08.05): the node takes its cluster, provider, capabilities,
+Argo state and links from it, and still carries no release and no promotion lines.
+
+#### Scenario: FLT-MAP-09.01 -- An Application named after the instance matches
+
+- GIVEN promotion environment `B`
+- AND an Application named `B` whose destination namespace is `B`
+- WHEN the promotion payload is built
+- THEN environment `B` SHALL carry that Application's labels and health
+
+#### Scenario: FLT-MAP-09.02 -- The core Application wins over helpers
+
+- GIVEN three Applications that deploy into namespace `A`: a helper with another
+  name, an unlabelled one named `A`, and a labelled one named `<namespace>-A`
+- WHEN the promotion payload is built
+- THEN environment `A` SHALL carry the labelled Application's labels and health
+
+#### Scenario: FLT-MAP-09.03 -- The cluster falls back to the destination cluster
+
+- GIVEN an Application with no `cluster` delivery label that deploys to cluster `C`
+- WHEN the promotion payload is built
+- THEN its instance SHALL report cluster `C`
+- AND an Application that deploys to `in-cluster` SHALL report no cluster
+
+#### Scenario: FLT-MAP-09.04 -- Instances outside promotion are reported
+
+- GIVEN an Application that deploys instance `G` on cluster `C`, and `G` is not a
+  promotion environment
+- WHEN the promotion payload is built
+- THEN `unpromoted` SHALL hold `G` with cluster `C` and its Argo health
+- AND an Application that matches only by name SHALL NOT appear there
+- AND neither SHALL an Application on Argo CD's own cluster, nor an unlabelled
+  Application named `<namespace>-<add-on>`
+
+#### Scenario: FLT-MAP-09.05 -- A remote spoke box shows its physical cluster
+
+- GIVEN a remote spoke `R` without a promotion environment
+- AND `unpromoted` holds `R` with cluster `C`
+- WHEN the map model is built
+- THEN node `R` SHALL report cluster `C` and its Argo health and link
+- AND node `R` SHALL still carry no release
 
 ### Requirement: FLT-MAP-06 -- Derived, deterministic, baked-in-free geometry
 

@@ -55,6 +55,7 @@ import type {
   PromotionGate,
   PullRequest,
   ReleaseBundle,
+  UnpromotedInstance,
 } from "../../domain/promotion";
 import type {
   InstanceTopology,
@@ -151,6 +152,37 @@ interface WirePromotion {
   > | null;
   readonly releases?: Readonly<Record<string, WireRelease>> | null;
   readonly frontier?: WireRelease | null;
+  readonly unpromoted?: Readonly<Record<string, WireUnpromoted>> | null;
+}
+
+interface WireUnpromoted {
+  readonly cluster?: string;
+  readonly role?: string;
+  readonly provider?: string;
+  readonly env?: string;
+  readonly capabilities?: readonly string[] | null;
+  readonly argoHealth?: string;
+  readonly argoSync?: string;
+  readonly argoUrl?: string;
+  readonly consoleUrl?: string;
+  readonly grafanaUrl?: string;
+}
+
+function mapUnpromoted(raw: WireUnpromoted): UnpromotedInstance {
+  return {
+    cluster: nullableString(raw.cluster),
+    role: nullableString(raw.role),
+    provider: nullableString(raw.provider),
+    envLabel: nullableString(raw.env),
+    capabilities: (raw.capabilities ?? []).filter(
+      (c): c is string => typeof c === "string" && c !== "",
+    ),
+    argoHealth: nullableString(raw.argoHealth),
+    argoSync: nullableString(raw.argoSync),
+    argoUrl: nullableString(raw.argoUrl),
+    consoleUrl: nullableString(raw.consoleUrl),
+    grafanaUrl: nullableString(raw.grafanaUrl),
+  };
 }
 
 /** `/api/instances` returns a bare list of instance names. */
@@ -271,6 +303,12 @@ export function mapPromotion(raw: unknown): PromotionData {
     releases: versions,
     releaseByDigest,
     frontier: wire.frontier ? mapRelease(wire.frontier) : null,
+    unpromoted: Object.fromEntries(
+      Object.entries(wire.unpromoted ?? {}).map(([key, info]) => [
+        key,
+        mapUnpromoted(info),
+      ]),
+    ),
   };
 }
 
