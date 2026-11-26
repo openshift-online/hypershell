@@ -13,6 +13,7 @@ export type DeliveryState =
   | "promotion-retried"
   | "bundle-train"
   | "waiting-on-renovate"
+  | "outside-bundle"
   | "source-unavailable"
   | "restart-loading"
   | "refreshing"
@@ -100,6 +101,11 @@ export type Change = {
   readonly title: string;
   readonly author: string;
   readonly stages: Readonly<Record<string, StageCell>>;
+  /**
+   * Built only components no bundle lists: its stages end at Release
+   * (FLT-DLV-06.08).
+   */
+  readonly outsideBundle?: boolean;
 };
 
 export type Severity = "info" | "warning" | "danger" | "good";
@@ -1175,6 +1181,81 @@ const WAITING_ON_RENOVATE: DeliveryFixture = {
   ],
 };
 
+// FLT-DLV-06.08: two changes that built only an outside-bundle component. Their
+// stages end at Release; one is still building, the other is done here.
+const OUTSIDE_RELEASE: StageCell = {
+  state: "not-needed",
+  detail: "Ships outside the bundle",
+};
+
+const C1003: Change = {
+  sha: "d41a7c9e0b1f2a3c4d5e6f708192a3b4c5d6e7f8",
+  shortSha: "d41a7c9",
+  pr: 1003,
+  title: "feat(fleet-dashboard): show loading after a restart",
+  author: "lee",
+  outsideBundle: true,
+  stages: {
+    merged: passed("16:05"),
+    build: { state: "running", primary: "8 min", detail: "fleet-dashboard" },
+    policy: notStarted,
+    release: OUTSIDE_RELEASE,
+  },
+};
+
+const C1002: Change = {
+  sha: "e52b8d0f1c2a3b4c5d6e7f8091a2b3c4d5e6f709",
+  shortSha: "e52b8d0",
+  pr: 1002,
+  title: "fix(fleet-dashboard): mark GitOps stale when the lock stops updating",
+  author: "lee",
+  outsideBundle: true,
+  stages: {
+    merged: passed("15:20"),
+    build: passed("15:39", "fleet-dashboard"),
+    policy: passed("15:42", "fleet-dashboard"),
+    release: OUTSIDE_RELEASE,
+  },
+};
+
+const OUTSIDE_BUNDLE: DeliveryFixture = {
+  asOf: "16:13",
+  pipelineNow: {
+    ...PIPELINE_QUIET(
+      "d41a7c9 (#1003) feat(fleet-dashboard): show loading after a restart, merged 16:05",
+      "brave walnut",
+      "15:29",
+    ),
+    inFlight: [
+      {
+        term: "Build",
+        state: "running",
+        text: "fleet-dashboard for d41a7c9 (#1003) - 8 min, usually 17 min",
+      },
+    ],
+  },
+  summarySeverity: "info",
+  summary: [
+    {
+      shortSha: "d41a7c9",
+      pr: 1003,
+      title: "feat(fleet-dashboard): show loading after a restart",
+      now: "Building fleet-dashboard - 8 min, usually 17 min",
+      next: "Policy check - usually about 16:25, then ships outside the bundle",
+      severity: "info",
+      progress: {
+        percent: 40,
+        cells: [
+          { label: "Build", state: "running", time: "8 min" },
+          { label: "Policy check", state: "not-started" },
+          { label: "Release", state: "not-needed" },
+        ],
+      },
+    },
+  ],
+  changes: [C1003, C1002, ...ALL_DELIVERED.changes],
+};
+
 export const FIXTURES: Readonly<
   Record<
     Exclude<DeliveryState, "loading" | "not-configured" | "error">,
@@ -1189,6 +1270,7 @@ export const FIXTURES: Readonly<
   "promotion-retried": PROMOTION_RETRIED,
   "bundle-train": BUNDLE_TRAIN,
   "waiting-on-renovate": WAITING_ON_RENOVATE,
+  "outside-bundle": OUTSIDE_BUNDLE,
   "source-unavailable": SOURCE_UNAVAILABLE,
   "restart-loading": RESTART_LOADING,
   refreshing: REFRESHING,

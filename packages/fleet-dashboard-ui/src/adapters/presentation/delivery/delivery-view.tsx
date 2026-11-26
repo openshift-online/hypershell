@@ -58,6 +58,7 @@ import {
   changeNowNext,
   changeSeverity,
   progress,
+  shipsOutsideBundle,
   whereToLook,
   type Arrival,
   type DeliveryChange,
@@ -844,6 +845,8 @@ function nextText(
       );
     case "none":
       return intl.formatMessage(m.nextNone);
+    case "outside-bundle":
+      return intl.formatMessage(m.nextOutside);
     case "bundle-restart": {
       const text = intl.formatMessage(m.nextBundleRestart, {
         gate: [
@@ -869,15 +872,17 @@ function nextText(
         intl,
         def ?? { key: next.stage.key, group: null },
       );
-      if (row.now.overdue) {
-        return intl.formatMessage(m.nextOverdue, { stage });
-      }
-      return next.expectedAtMs !== null
-        ? intl.formatMessage(m.nextStageAt, {
-            stage,
-            time: formatClock(intl, next.expectedAtMs, nowMs),
-          })
-        : stage;
+      const text = row.now.overdue
+        ? intl.formatMessage(m.nextOverdue, { stage })
+        : next.expectedAtMs !== null
+          ? intl.formatMessage(m.nextStageAt, {
+              stage,
+              time: formatClock(intl, next.expectedAtMs, nowMs),
+            })
+          : stage;
+      return next.thenOutside
+        ? intl.formatMessage(m.nextThenOutside, { text })
+        : text;
     }
   }
 }
@@ -932,6 +937,10 @@ function NowNextLines({
     case "none":
       return (
         <Content component="p">{intl.formatMessage(m.panelAllStages)}</Content>
+      );
+    case "outside-bundle":
+      return (
+        <Content component="p">{intl.formatMessage(m.panelOutside)}</Content>
       );
     default: {
       const row = status.row;
@@ -1384,10 +1393,12 @@ function PanelDetails({
         {bundle === null ? (
           <Content component="p">
             {intl.formatMessage(
-              change.stages.find((st) => st.key === "release")?.state ===
-                "unknown"
-                ? m.bundleUnknown
-                : m.bundleNone,
+              shipsOutsideBundle(change)
+                ? m.bundleOutside
+                : change.stages.find((st) => st.key === "release")?.state ===
+                    "unknown"
+                  ? m.bundleUnknown
+                  : m.bundleNone,
             )}
           </Content>
         ) : (

@@ -51,6 +51,10 @@ export const WaitingOnRenovate: Story = {
   args: { state: "waiting-on-renovate" },
 };
 
+// Changes that built only an outside-bundle component end at Release
+// (FLT-DLV-06.08).
+export const OutsideBundle: Story = { args: { state: "outside-bundle" } };
+
 export const SourceUnavailable: Story = {
   args: { state: "source-unavailable" },
 };

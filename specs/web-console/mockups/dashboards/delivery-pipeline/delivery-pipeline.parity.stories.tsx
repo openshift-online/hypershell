@@ -30,6 +30,7 @@ export const BundleTrain: Story = { args: { state: "bundle-train" } };
 export const WaitingOnRenovate: Story = {
   args: { state: "waiting-on-renovate" },
 };
+export const OutsideBundle: Story = { args: { state: "outside-bundle" } };
 export const SourceUnavailable: Story = {
   args: { state: "source-unavailable" },
 };

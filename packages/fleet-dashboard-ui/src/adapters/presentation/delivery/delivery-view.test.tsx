@@ -531,6 +531,83 @@ describe("DeliveryView change panels (FLT-DLV-03, FLT-DLV-07, FLT-DLV-11)", () =
   });
 });
 
+function renderOutside() {
+  const data = mapDelivery({
+    enabled: true,
+    stages: [
+      { key: "merged", kind: "pipeline" },
+      { key: "build", kind: "pipeline" },
+      { key: "policy", kind: "pipeline" },
+      { key: "release", kind: "pipeline" },
+      { key: "gitops", kind: "pipeline" },
+      { key: "env:int", kind: "group", group: "int" },
+    ],
+    changes: [
+      {
+        sha: NEW_SHA,
+        shortSha: "b81f3e2",
+        pr: 1200,
+        mergedAt: "2026-11-25T18:42:00Z",
+        title: "Dashboard change",
+        stages: [
+          {
+            key: "merged",
+            state: "passed",
+            finishedAt: "2026-11-25T18:42:00Z",
+          },
+          { key: "build", state: "passed", finishedAt: "2026-11-25T18:58:00Z" },
+          {
+            key: "policy",
+            state: "passed",
+            finishedAt: "2026-11-25T19:02:00Z",
+          },
+          { key: "release", state: "not-needed", reason: "outside-bundle" },
+        ],
+        builds: [{ component: "board", state: "passed", outsideBundle: true }],
+      },
+    ],
+  });
+  render(
+    <IntlProvider locale="en" defaultLocale="en" timeZone="UTC">
+      <DeliveryView
+        state={{
+          status: "ready",
+          plane: {
+            data,
+            generatedAt: "2026-11-25T19:12:00Z",
+            stale: false,
+            error: null,
+          },
+        }}
+        selectedSha={null}
+        nowMs={Date.parse("2026-11-25T19:12:00Z")}
+        onNavigate={() => undefined}
+        onRefresh={() => undefined}
+      />
+    </IntlProvider>,
+  );
+}
+
+describe("DeliveryView outside-bundle change (FLT-DLV-06.08)", () => {
+  // Verifies: FLT-DLV-06.08
+  it("ends the steps at Release and says it is done here", () => {
+    renderOutside();
+    const panel = panelOf("b81f3e2 (#1200)");
+    const steps = within(panel)
+      .getByRole("list", { name: /Delivery progress of/ })
+      .querySelectorAll(":scope > li");
+    // Merged, Build, Policy check, and Release only.
+    expect(steps).toHaveLength(4);
+    const text = panel.textContent.replace(/\s+/g, " ");
+    expect(text).toContain("Done here - ships outside the bundle");
+    expect(text).toContain(
+      "Ships outside the bundle, so no bundle will contain this change.",
+    );
+    expect(text).not.toContain("No bundle contains this change yet.");
+    expect(text).not.toContain("Renovate");
+  });
+});
+
 const SHIPPED_LABEL = "Shipped";
 
 describe("DeliveryView layout (FLT-DLV-25)", () => {

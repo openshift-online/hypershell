@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"slices"
 	"testing"
 	"time"
 )
@@ -215,6 +216,35 @@ func TestDeliveryOutsideBundleComponent(t *testing.T) {
 	}
 	if len(c.Builds) != 1 || !c.Builds[0].OutsideBundle {
 		t.Errorf("builds = %+v, want the build marked outside the bundle", c.Builds)
+	}
+}
+
+func TestDeliveryOutsideBundleStagesEndAtRelease(t *testing.T) {
+	// Verifies: FLT-DLV-06.08
+	f := newFixture(t)
+	withComponents(f)
+	f.gh.checks[f.repo.sha(10)] = []CheckRun{
+		konflux("demo-board-main-on-push", "completed", "success"),
+		konflux("demo-main-enterprise-contract / demo-board-main", "completed", "success"),
+	}
+	p := f.refresh(t)
+	c := change(t, p, f.repo.sha(10))
+	var keys []string
+	for _, s := range c.Stages {
+		keys = append(keys, s.Key)
+	}
+	if want := []string{stageMerged, stageBuild, stagePolicy, stageRelease}; !slices.Equal(keys, want) {
+		t.Errorf("stages = %v, want %v", keys, want)
+	}
+	if len(c.Envs) != 0 {
+		t.Errorf("environments = %+v, want none", c.Envs)
+	}
+	if c.Bundle != nil {
+		t.Errorf("bundle = %+v, want none", c.Bundle)
+	}
+	// A change that built a bundled component keeps every stage.
+	if n := len(change(t, p, f.repo.sha(9)).Stages); n <= 4 {
+		t.Errorf("bundled change has %d stages, want the full pipeline", n)
 	}
 }
 

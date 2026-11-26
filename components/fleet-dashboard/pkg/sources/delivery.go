@@ -1335,6 +1335,10 @@ func buildChange(in deliveryInput, pl placement, groups []envGroup, l listedChan
 
 	// Release (FLT-DLV-06).
 	release := DeliveryStage{Key: stageRelease}
+	// A change that built only outside-bundle components never reaches the
+	// environment groups through the bundle: its stages end at Release
+	// (FLT-DLV-06.08).
+	outside := l.first < 0 && outsideOnly(builds, pl.bundled)
 	if l.first >= 0 {
 		b := in.bundles[l.first]
 		pub := in.published[b.Tag]
@@ -1380,6 +1384,11 @@ func buildChange(in deliveryInput, pl placement, groups []envGroup, l listedChan
 			release.State, release.Reason, release.FinishedAt = StageRunning, reasonPartlyReleased, ""
 			release.Partly = partly
 		}
+	}
+
+	if outside {
+		ch.Stages = withStartTimes([]DeliveryStage{merged, build, policy, release})
+		return ch
 	}
 
 	// Renovate (FLT-DLV-07).
@@ -1429,18 +1438,7 @@ func buildChange(in deliveryInput, pl placement, groups []envGroup, l listedChan
 		stages = append(stages, st)
 		ch.Envs = append(ch.Envs, envs...)
 	}
-	// Each stage starts when the closest earlier stage with an end finished.
-	prevEnd := ""
-	for i := range stages {
-		s := &stages[i]
-		if s.StartedAt == "" && prevEnd != "" && (s.State == StageRunning || s.State == StageWaiting || s.State == StagePassed || s.State == StageFailed) {
-			s.StartedAt = prevEnd
-		}
-		if s.FinishedAt != "" {
-			prevEnd = s.FinishedAt
-		}
-	}
-	ch.Stages = stages
+	ch.Stages = withStartTimes(stages)
 
 	// The delivery time is the last environment's finish; omitted when the
 	// history does not reach a group's finish (FLT-DLV-02).
@@ -1458,6 +1456,22 @@ func buildChange(in deliveryInput, pl placement, groups []envGroup, l listedChan
 		ch.DeliveredAt = last
 	}
 	return ch
+}
+
+// withStartTimes starts each stage when the closest earlier stage with an end
+// finished.
+func withStartTimes(stages []DeliveryStage) []DeliveryStage {
+	prevEnd := ""
+	for i := range stages {
+		s := &stages[i]
+		if s.StartedAt == "" && prevEnd != "" && (s.State == StageRunning || s.State == StageWaiting || s.State == StagePassed || s.State == StageFailed) {
+			s.StartedAt = prevEnd
+		}
+		if s.FinishedAt != "" {
+			prevEnd = s.FinishedAt
+		}
+	}
+	return stages
 }
 
 // partlyStage marks a later stage of a partly shipped change: it cannot pass

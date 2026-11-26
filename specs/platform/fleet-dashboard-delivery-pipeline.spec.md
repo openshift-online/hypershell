@@ -358,7 +358,16 @@ stage SHALL be Running and SHALL be labelled "Releasing (inferred)", because
 the Konflux managed release is not observable. When every component the change
 built is an outside-bundle component and no bundle contains it yet, the Release
 stage SHALL be Not needed with "Ships outside the bundle", not "Releasing
-(inferred)". When the matching
+(inferred)". Such a change never reaches the environment groups through the
+bundle, so its stages SHALL end at Release: the payload SHALL omit the
+Renovate stage and every environment-group stage and environment for it, and
+the change panel SHALL show neither. Its progress bar SHALL count only Build,
+Policy check, and Release. Once its Policy check has passed, its panel SHALL
+read "Done here - ships outside the bundle" in place of Now and Next, and
+while it is still building or checking, its Next SHALL end with "then ships
+outside the bundle" instead of an environment group. Its Bundle details SHALL
+read "Ships outside the bundle, so no bundle will contain this change.", not
+"No bundle contains this change yet.". When the matching
 application-repository GitHub release is still a draft or missing after the
 bundle is published, the change details (FLT-DLV-11) SHALL show "Downloads not
 published yet". This SHALL NOT change the Release stage state, because GitOps
@@ -426,6 +435,16 @@ policy check, releasing (inferred), or failed.
 - WHEN the row renders
 - THEN the Release cell SHALL read Not needed with "Ships outside the bundle"
 - AND it SHALL NOT read "Releasing (inferred)"
+
+#### Scenario: FLT-DLV-06.08 -- Outside-bundle stages end at Release
+
+- GIVEN change C built only a component that no known bundle lists
+- AND no bundle contains C
+- WHEN the BFF builds the payload and C's panel renders
+- THEN C's stages SHALL be Merged, Build, Policy check, and Release only
+- AND C SHALL have no environments
+- AND once C's Policy check has passed, the panel SHALL read "Done here - ships outside the bundle"
+- AND the Bundle details SHALL read "Ships outside the bundle, so no bundle will contain this change."
 
 ### Requirement: FLT-DLV-07 -- Renovate stage
 

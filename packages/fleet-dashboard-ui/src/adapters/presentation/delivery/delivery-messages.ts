@@ -501,6 +501,18 @@ export const deliveryMessages = defineMessages({
     defaultMessage: "A passing re-check or a new change resumes promotion",
     description: "Next text after a failed environment gate.",
   },
+  nextOutside: {
+    id: "fleet.delivery.nowNext.outside",
+    defaultMessage: "Ships outside the bundle when this stage passes",
+    description:
+      "Next text when the current stage is the last one before an outside-bundle change ships by its own route.",
+  },
+  nextThenOutside: {
+    id: "fleet.delivery.nowNext.thenOutside",
+    defaultMessage: "{text}, then ships outside the bundle",
+    description:
+      "Next text of an outside-bundle change: the next stage, then its own route.",
+  },
   nextNone: {
     id: "fleet.delivery.nowNext.none",
     defaultMessage: "Delivered when this stage passes",
@@ -558,6 +570,13 @@ export const deliveryMessages = defineMessages({
     id: "fleet.delivery.drawer.bundleNone",
     defaultMessage: "No bundle contains this change yet.",
     description: "Drawer text before a bundle contains the change.",
+  },
+  bundleOutside: {
+    id: "fleet.delivery.drawer.bundleOutside",
+    defaultMessage:
+      "Ships outside the bundle, so no bundle will contain this change.",
+    description:
+      "Drawer text when the change built only components no bundle lists (FLT-DLV-06.08).",
   },
   bundleAlias: {
     id: "fleet.delivery.drawer.alias",
@@ -1067,6 +1086,12 @@ export const deliveryMessages = defineMessages({
     defaultMessage: "Delivered",
     description:
       "Change panel: the change runs everywhere; no delivery time known.",
+  },
+  panelOutside: {
+    id: "fleet.delivery.panel.outside",
+    defaultMessage: "Done here - ships outside the bundle",
+    description:
+      "Change panel: every stage finished and the change ships outside the bundle (FLT-DLV-06.08).",
   },
   panelAllStages: {
     id: "fleet.delivery.panel.allStages",
