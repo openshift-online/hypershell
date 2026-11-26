@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/distribution/reference"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -61,8 +62,9 @@ func NewPolicyInterceptorProvider(image, eventsAddress, consoleURL string, defau
 	}
 }
 
-// OwnImage returns the controller's own container image, pinned by digest when
-// the kubelet reports one, read from its Pod status (PLAT-PGP-09.01). The
+// OwnImage returns the controller's own container image, read from its Pod
+// status, pinned by digest when the kubelet reports a digest for the same
+// repository as the spec image (PLAT-PGP-09.01, PLAT-PGP-09.03). The
 // interceptor sidecar runs this exact build.
 func OwnImage(ctx context.Context, kube kubernetes.Interface, namespace, podName, container string) (string, error) {
 	if podName == "" {
@@ -75,6 +77,17 @@ func OwnImage(ctx context.Context, kube kubernetes.Interface, namespace, podName
 	return imageFromPod(pod, container)
 }
 
+// imageFromPod returns the container's image for the interceptor sidecar.
+//
+//  1. A "repository@sha256:..." image ID whose repository matches the spec
+//     image's repository pins the exact build (PLAT-PGP-09.01).
+//  2. Any other image ID keeps the spec image (PLAT-PGP-09.03). This covers a
+//     bare digest, and a placeholder repository such as the
+//     "docker.io/library/import-<date>" name containerd gives an image loaded
+//     from an archive (Kind with the podman provider), which no registry serves.
+//
+// Repositories are compared after normalization, so "quay.io/x/cp:latest"
+// matches "quay.io/x/cp@sha256:..." and "cp" matches "docker.io/library/cp".
 func imageFromPod(pod *corev1.Pod, container string) (string, error) {
 	spec := ""
 	for _, c := range pod.Spec.Containers {
@@ -90,13 +103,29 @@ func imageFromPod(pod *corev1.Pod, container string) (string, error) {
 			continue
 		}
 		id := strings.TrimPrefix(st.ImageID, "docker-pullable://")
-		// A repository@sha256 imageID pins the exact build. A bare digest
-		// (locally loaded Kind images) has no repository; keep the spec image.
-		if at := strings.Index(id, "@sha256:"); at > 0 {
+		at := strings.Index(id, "@sha256:")
+		if at <= 0 {
+			continue
+		}
+		if sameRepository(id[:at], spec) {
 			return id, nil
 		}
 	}
 	return spec, nil
+}
+
+// sameRepository reports whether two image references name the same
+// normalized repository. An unparsable reference never matches.
+func sameRepository(a, b string) bool {
+	ra, err := reference.ParseNormalizedNamed(a)
+	if err != nil {
+		return false
+	}
+	rb, err := reference.ParseNormalizedNamed(b)
+	if err != nil {
+		return false
+	}
+	return ra.Name() == rb.Name()
 }
 
 // SetPolicyInterceptor enables the policy interceptor sidecar on every gateway

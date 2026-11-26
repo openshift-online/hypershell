@@ -45,6 +45,36 @@ func TestSidecarUsesControllerOwnImageDigest(t *testing.T) {
 	}
 }
 
+// Verifies: PLAT-PGP-09.01, PLAT-PGP-09.03
+func TestOwnImagePinsDigestOnlyForTheSpecRepository(t *testing.T) {
+	cases := []struct {
+		name, spec, imageID, want string
+	}{
+		{"matching registry repo gets the digest pin", "quay.io/x/cp:latest", "quay.io/x/cp@sha256:0123", "quay.io/x/cp@sha256:0123"},
+		{"docker-pullable prefix is stripped", "quay.io/x/cp:latest", "docker-pullable://quay.io/x/cp@sha256:0123", "quay.io/x/cp@sha256:0123"},
+		{"familiar and normalized names match", "cp:dev", "docker.io/library/cp@sha256:0123", "docker.io/library/cp@sha256:0123"},
+		{"archive-loaded import name falls back to the spec image", "localhost/hypershell-controller:dev", "docker.io/library/import-2026-11-26@sha256:9ff3", "localhost/hypershell-controller:dev"},
+		{"other repository falls back to the spec image", "quay.io/x/cp:latest", "quay.io/y/cp@sha256:0123", "quay.io/x/cp:latest"},
+		{"bare digest falls back to the spec image", "quay.io/x/cp:latest", "sha256:0123", "quay.io/x/cp:latest"},
+		{"empty image ID falls back to the spec image", "quay.io/x/cp:latest", "", "quay.io/x/cp:latest"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "hypershell-controller-0"},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "controller", Image: tc.spec}}},
+				Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{
+					Name: "controller", ImageID: tc.imageID,
+				}}},
+			}
+			got, err := imageFromPod(pod, "controller")
+			if err != nil || got != tc.want {
+				t.Fatalf("own image = %q, %v; want %q", got, err, tc.want)
+			}
+		})
+	}
+}
+
 // Verifies: PLAT-PGP-08.03, CTRL-CORE-22.04
 func TestSidecarDefaultsComeFromPlatformPolicySettings(t *testing.T) {
 	settings := &fakeSettingsClient{defaults: settingsDefaults("750m")}
