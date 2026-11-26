@@ -181,9 +181,9 @@ func (b *ValuesBuilder) Build() (map[string]interface{}, error) {
 
 // buildCoreValues builds the core Helm chart values.
 func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
-	// The upstream chart name is "helm-chart", not "openshell", so the default
-	// fullname (release-name + chart-name) would produce "openshell-gateway-helm-chart".
-	// Pin fullnameOverride so every chart resource uses the expected name.
+	// The default fullname combines the release name and the chart name, and
+	// the upstream chart name has changed before ("helm-chart" until v0.1.10).
+	// Pin fullnameOverride so every chart resource keeps the expected name.
 	setNestedValue(values, ReleaseName, "fullnameOverride")
 
 	if b.AdditionalCAConfigMapName != "" {
@@ -314,6 +314,12 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	// always provide the key even when grpcRoute itself is disabled.
 	setNestedValue(values, false, "grpcRoute", "enabled")
 	setNestedValue(values, false, "grpcRoute", "backendTLSPolicy", "enabled")
+
+	// Gateway service routing: the sandbox HTTPRoute sends sandbox-service and
+	// WebSocket traffic to the gateway, which virtual-hosts it by Host header
+	// (OSG-ROUT-13). Since upstream #5672 (v0.1.10) the chart turns this off for
+	// Kubernetes unless the value is set, so set it on every gateway.
+	setNestedValue(values, true, "gatewayConfig", "openshell.gateway", "enable_gateway_service_routing")
 
 	// cert-manager configuration
 	setNestedValue(values, b.HasCertManager, "certManager", "enabled")

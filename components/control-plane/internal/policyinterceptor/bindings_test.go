@@ -12,7 +12,8 @@ import (
 )
 
 // routesAllowlist is the interceptable allowlist of
-// crates/openshell-gateway-interceptors/src/routes.rs at v0.1.8-rhaiv.0:
+// crates/openshell-gateway-interceptors/src/routes.rs at v0.1.8-rhaiv.0 (unchanged
+// through v0.1.10-rhaiv.0):
 // 29 openshell.v1.OpenShell methods (INTERCEPTABLE_METHODS) plus
 // openshell.v1.SandboxUpdates/UpdateSandbox (INTERCEPTABLE_SANDBOX_UPDATE_METHODS).
 var routesAllowlist = []string{

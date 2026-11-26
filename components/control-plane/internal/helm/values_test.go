@@ -850,7 +850,8 @@ func TestBuild_OperatorWorkspaceMode(t *testing.T) {
 // control-plane-built values must reach the chart's rendered gateway.toml as
 // workspace_mode = "managed" and the derived gateway_id must land in both the
 // gateway JWT identity and the Kubernetes driver section. Skipped without helm.
-// Verifies: OSG-OPWS-08.01, OSG-OPWS-08.03
+// It also checks that gateway service routing is on in every mode.
+// Verifies: OSG-OPWS-08.01, OSG-OPWS-08.03, OSG-ROUT-13.04
 func TestBuild_WorkspaceModeRendersInChart(t *testing.T) {
 	helmBin, err := exec.LookPath("helm")
 	if err != nil {
@@ -914,6 +915,9 @@ func TestBuild_WorkspaceModeRendersInChart(t *testing.T) {
 				"quay.io/test/gateway@" + digest,
 				"quay.io/test/supervisor@" + digest,
 				"quay.io/test/runtime@" + digest,
+				// The chart defaults this to false for Kubernetes since upstream
+				// #5672; sandbox-service routing needs it on (OSG-ROUT-13).
+				"enable_gateway_service_routing = true",
 			}
 			if mode == "managed" {
 				want = append(want, `gateway_id = "deadbeefdeadbeef"`)
