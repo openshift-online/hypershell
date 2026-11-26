@@ -559,6 +559,14 @@ port. The `BackendTLSPolicy` re-encrypt SHALL cover both ports; it targets the
 CA and validation hostname (`openshell-gateway.<namespace>.svc.cluster.local`)
 apply to the HTTP/1.1 port without a separate policy.
 
+The gateway SHALL serve this sandbox-service traffic itself: it virtual-hosts each
+request by its Host header and forwards it to the sandbox. The control plane SHALL
+set `gatewayConfig."openshell.gateway".enable_gateway_service_routing: true` on
+every gateway, so the rendered `gateway.toml` turns this path on. Since
+upstream PR 5672 (gateway 0.1.10), the chart turns it off for Kubernetes when
+the value is not set. Without it, every sandbox service URL stops working, and no build or
+unit test fails.
+
 **Why a second port is required.** Sandbox-service traffic includes plain HTTP and
 WebSocket. A WebSocket upgrade is an HTTP/1.1 mechanism (RFC 6455); HTTP/2 removed
 the `Upgrade` mechanism (RFC 7540 sections 8.1.1 and 8.1.2.2), and its only HTTP/2
@@ -596,6 +604,12 @@ Service port aliasing the gRPC pod port (see istio/istio#36185).
 - WHEN its ports are inspected
 - THEN it SHALL expose a `grpc` port (`appProtocol: grpc`) and an `http` port (`appProtocol: http`)
 - AND both SHALL set `targetPort: grpc`, resolving to the single gateway pod container port
+
+#### Scenario: OSG-ROUT-13.04 -- Gateway service routing is on
+
+- GIVEN any gateway the control plane renders, in any workspace mode
+- WHEN the chart renders its `gateway.toml`
+- THEN `[openshell.gateway]` SHALL contain `enable_gateway_service_routing = true`
 
 ---
 

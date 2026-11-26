@@ -13,6 +13,45 @@ release:
   namespace: my-namespace
 
 tests:
+  - it: disables gateway service routing by default on Kubernetes
+    template: templates/gateway-config.yaml
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?m)^enable_gateway_service_routing\s*=\s*false$'
+
+  - it: allows explicitly enabling gateway service routing
+    template: templates/gateway-config.yaml
+    set:
+      gatewayConfig:
+        openshell.gateway:
+          enable_gateway_service_routing: true
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?m)^enable_gateway_service_routing\s*=\s*true$'
+
+  - it: defaults gateway routing off when saved configuration omits the gateway table
+    template: templates/gateway-config.yaml
+    set:
+      gatewayConfig:
+        openshell.gateway: null
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?m)^enable_gateway_service_routing\s*=\s*false$'
+
+  - it: defaults gateway routing off when saved configuration omits the flag
+    template: templates/gateway-config.yaml
+    set:
+      gatewayConfig:
+        openshell.gateway:
+          enable_gateway_service_routing: null
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?m)^enable_gateway_service_routing\s*=\s*false$'
+
   - it: disables the WebSocket tunnel unless explicitly enabled for an edge proxy
     template: templates/gateway-config.yaml
     asserts:
@@ -301,10 +340,10 @@ tests:
     asserts:
       - matchRegex:
           path: data["gateway.toml"]
-          pattern: 'supervisor_image\s*=\s*"registry\.example\.com/openshell/supervisor:v0\.1\.0"'
+          pattern: 'supervisor_image\s*=\s*"registry\.example\.com/ai-openshell/supervisor:v0\.1\.0"'
       - matchRegex:
           path: data["gateway.toml"]
-          pattern: 'sandbox_runtime_image\s*=\s*"registry\.example\.com/openshell/sandbox:v0\.1\.0"'
+          pattern: 'sandbox_runtime_image\s*=\s*"registry\.example\.com/ai-openshell/sandbox:v0\.1\.0"'
 
   - it: lets an individual registry override the global registry
     template: templates/statefulset.yaml
@@ -326,7 +365,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: registry.example.com/openshell/gateway:v0.1.0
+          value: registry.example.com/ai-openshell/gateway:v0.1.0
 
   - it: defaults a repository-only sandbox image to latest
     template: templates/gateway-config.yaml
@@ -510,6 +549,25 @@ tests:
       - matchRegex:
           path: data["gateway.toml"]
           pattern: '(?m)^jwks_allowed_origins\s*=\s*\["https://keys.example.com"\]$'
+
+  - it: scopes the OIDC CA bundle to the OIDC client
+    template: templates/gateway-config.yaml
+    set:
+      server.oidc.issuer: https://issuer.example.com
+      server.oidc.caConfigMapName: openshell-oidc-ca
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?ms)\[openshell\.gateway\.oidc\].*?ca_bundle\s*=\s*"/etc/openshell-tls/oidc-ca/ca\.crt"'
+
+  - it: omits the OIDC CA bundle path when no ConfigMap is configured
+    template: templates/gateway-config.yaml
+    set:
+      server.oidc.issuer: https://issuer.example.com
+    asserts:
+      - notMatchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?m)^ca_bundle\s*='
 
   - it: treats a null OTLP map as disabled
     template: templates/gateway-config.yaml
@@ -740,6 +798,11 @@ tests:
       - equal:
           path: spec.template.spec.volumes[3].configMap.name
           value: openshell-oidc-ca
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SSL_CERT_FILE
+          any: true
 
   # Regression for the P1 bug Drew flagged: grpc_endpoint MUST live in the
   # Kubernetes driver table, not in [openshell.gateway]. The gateway-side
@@ -883,7 +946,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["gateway.toml"]
-          pattern: 'supervisor_image\s*=\s*"ghcr\.io/nvidia/openshell/supervisor:0\.0\.0"'
+          pattern: 'supervisor_image\s*=\s*"quay\.io/ai-openshell/supervisor:0\.0\.0"'
 
   - it: uses the gateway built-in sandbox runtime image by default
     template: templates/gateway-config.yaml
@@ -932,7 +995,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["gateway.toml"]
-          pattern: 'supervisor_image\s*=\s*"ghcr\.io/nvidia/openshell/supervisor:1\.2\.3"'
+          pattern: 'supervisor_image\s*=\s*"quay\.io/ai-openshell/supervisor:1\.2\.3"'
 
   - it: renders a supervisor repository override with the default chart tag
     template: templates/gateway-config.yaml

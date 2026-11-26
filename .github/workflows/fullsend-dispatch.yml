@@ -82,7 +82,7 @@ env:
   IDP_ALIAS: ${{ vars.FULLSEND_IDP_ALIAS || 'github-actions' }}
   GATEWAY_AUDIENCE: ${{ vars.FULLSEND_GATEWAY_AUDIENCE || '3LyWC8i0llnDdrxOX4J4CQWDD5f' }}
   GATEWAY_ENDPOINT: ${{ vars.FULLSEND_GATEWAY_ENDPOINT || 'https://gw-openshell-58f66bfcd73e8f46.hyp0-spoke2.infra.hypershell.app:443' }}
-  OPENSHELL_VERSION: ${{ vars.FULLSEND_OPENSHELL_VERSION || 'v0.1.8-rhaiv.0' }}
+  OPENSHELL_VERSION: ${{ vars.FULLSEND_OPENSHELL_VERSION || 'v0.1.10-rhaiv.0' }}
   GATEWAY_NAME: agents-gateway
   WORKSPACE: ${{ vars.FULLSEND_WORKSPACE || 'gh-openshift-online' }}
   # fullsend's label-scope for this repo (one scope per dispatcher queue).

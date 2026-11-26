@@ -174,6 +174,10 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | Digests in specs and `ibm-cluster/SKILL.md` | `sha256:` of gateway, supervisor, sandbox | Replace the old digest strings too, not only the tag; read new ones from the Quay tag API. If the Quay API is unreachable, fall back to a tag-only reference (never pair a new tag with the old digest) and record the gap - see the 2026-10-23 Learnings entry |
 | `tests/e2e/cli_test.go` | `odh-openshell-cli:<TAG>` image pin used by the CLI e2e | Pin, not a fixture |
 | `DEVELOPMENT.md` | the `for example` tag in the "Controller image OpenShell release label" section | Prose doc example that is kept in sync with the real pin (it matched the current pin exactly before every prior bump); treat as a pin. Added on the v0.1.8-rhaiv.0 bump after the full-image grep missed it and the bare-digits grep caught it |
+| `.github/workflows/{fullsend-dispatch,fullsend-agent-run}.yml` | fallback `OPENSHELL_VERSION` (`vars.FULLSEND_OPENSHELL_VERSION \|\| '<TAG>'`) | Pin. Installs the CLI that drives fullsend's disposable gateway. A GitHub App token without the `workflows` permission cannot push these files (issue #1096); a run as a person can |
+| `.github/workflows/ci-federation-e2e-sandbox.yml` | `odh-openshell-cli:<TAG>` input default | Pin; same push limit as the row above |
+| `.tekton/hypershell-control-plane-main-{push,pull-request,merge-queue}.yaml` | `OPENSHELL_TAG` build arg | Stamped by `make sync-openshell-version`; check the stamp output lists all three |
+| `components/control-plane/internal/policyinterceptor/bindings_test.go` | the "at <TAG> (unchanged through <TAG>)" note above `routesAllowlist` | Diff upstream `crates/openshell-gateway-interceptors/src/routes.rs` between the two tags first. If the allowlist changed, update the list and the interceptor bindings, not only the note (see Contract surfaces) |
 | `components/control-plane/internal/helm/values_test.go` | none | Assertions copy the chart's rendered TOML text; update them when a chart upgrade changes spacing (see Learnings log) |
 
 **Do NOT change** version strings that are illustrative fixtures or historical
@@ -631,6 +635,9 @@ does, the item is `needs-decision`:
 | Gateway/supervisor CLI flags & env | Control plane sets them via the chart's `gatewayConfig` values | `charts/openshell/templates/_toml.tpl`, `deployment.yaml`/`statefulset.yaml` |
 | PKI / TLS / ingress (Route, cert-manager, Gateway API) | HyperShell hand-rolls per-tenant PKI + ingress | `internal/gateway/` reconciler, ingress specs |
 | Auth (OIDC) | OIDC is the client auth mechanism (no client mTLS) | `ValidateOIDCConfig`, gateway OIDC config |
+| Chart defaults that turn a feature off | A new chart default can switch off a path HyperShell uses, with no build or test failure. Read every `values.yaml` default that changes, and every release-note line that says "no longer ... by default" | `internal/helm/values.go`; for example `enable_gateway_service_routing` (OSG-ROUT-13.04) |
+| Gateway interceptor method allowlist | The gateway rejects an interceptor binding to a method outside its allowlist, and an older gateway can crash on it | upstream `crates/openshell-gateway-interceptors/src/routes.rs`; `internal/policyinterceptor/` bindings and `bindings_test.go` |
+| Image availability on Quay | A midstream tag can exist on GitHub before all its images are on Quay | Check gateway, supervisor, sandbox and CLI for the target tag (Step 1); pin the newest tag that has all four |
 
 Note: there is no `components/control-plane/manifests/gateway/` directory in
 the current architecture (a 2026-11-04 correction - see the Learnings log).
@@ -679,6 +686,49 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **v0.1.10-rhaiv.0 + console v0.1.5 (2026-11-26, v0.1.8-rhaiv.0 -> v0.1.10-rhaiv.0,
+  interactive run):** Crosses two upstream base versions (v0.1.9, v0.1.10). One
+  breaking change needed a code fix.
+  - **Target held back one revision.** The newest tag, `v0.1.10-rhaiv.1`
+    (tagged 2026-11-25), had supervisor, sandbox and CLI images on Quay but no
+    gateway image. Pinned `v0.1.10-rhaiv.0`, the newest tag with all four. A
+    later run picks up `rhaiv.1` when its gateway image exists. PR #1128 had hit
+    the same problem with `v0.1.9-rhaiv.0`. Added an image-availability check to
+    Contract surfaces.
+  - **Breaking (fixed): gateway service routing is now opt-in on Kubernetes**
+    (upstream #5672). The chart renders `enable_gateway_service_routing = false`
+    unless the value is set. Every sandbox service URL (OSG-ROUT-13) would have
+    stopped working, with all builds and tests green. `values.go` now sets it to
+    `true` on every gateway. `TestBuild_WorkspaceModeRendersInChart` asserts it
+    in the rendered chart (OSG-ROUT-13.04) and fails without the fix.
+  - **OIDC CA scope narrowed** (upstream #3673). The chart no longer sets a
+    process-wide `SSL_CERT_FILE`. It writes `[openshell.gateway.oidc] ca_bundle`,
+    so the CA applies only to OIDC discovery and JWKS. HyperShell uses the CA only
+    for OIDC, so no code change. OSG-TLS-03 still described an older
+    `/etc/pki/tls/certs` mount and `SSL_CERT_FILE`; rewrote it to match.
+  - **Chart renamed** `helm-chart` -> `openshell` (upstream #5823). Not a
+    problem: `nameOverride` was already `openshell`, so selector labels did not
+    change, and `fullnameOverride` pins resource names. Fixed the stale comment in
+    `values.go`.
+  - **Mechanical.** No RBAC template diff. `listenAddress` defaults to `0.0.0.0`
+    (unchanged behaviour). The only removed proto lines are in
+    `supervisor_middleware.proto`, which HyperShell does not vendor, and
+    `EvaluateHttpRequest` is deprecated, not removed. The protos HyperShell vendors
+    gained fields only. `gateway_interceptor.proto`, `extension.proto`,
+    `datamodel.proto` and the interceptor allowlist (`routes.rs`) are byte-identical.
+    `OPENSHELL_SANDBOX_IMAGE` is unchanged. Upstream images also publish to
+    `quay.io/ai-openshell` now (#5822); HyperShell still pins the midstream
+    `quay.io/opendatahub` images.
+  - **Both local chart patches erased by vendoring and re-applied** (httpPort,
+    extraInitContainers), as the Local patches section predicts.
+  - **Console v0.1.4 -> v0.1.5** (line 0.1, tested on gateway 0.1.6). No backend,
+    configuration or `go.mod` change, so the env contract is the same. The only
+    runtime fix is a healthcheck path in the console's own Helm probes;
+    HyperShell's console uses a TCP probe, so it does not apply.
+  - **Footprint gaps fixed.** The three workflow files (issue #1096; a person's
+    push can write them), the `.tekton` build args and the `bindings_test.go`
+    allowlist note were not in the table. Added rows.
 
 - **Console repo move + v0.1.4 + USER_ROLE (2026-11-19, console 0.1.3 -> 0.1.4,
   HYPERSHELL-546 / issue #1129):** The console moved to a new upstream and image

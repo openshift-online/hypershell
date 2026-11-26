@@ -122,15 +122,17 @@ Every gateway uses OIDC, so it needs to reach the identity provider's OIDC disco
 - GIVEN a ConfigMap named `gateway-trusted-ca` exists in the HyperShell namespace
 - AND the ConfigMap has a `ca-bundle.crt` key containing PEM-encoded CA certificates
 - WHEN the GatewayReconciler reconciles a gateway in a tenant namespace
-- THEN it SHALL copy the ConfigMap to the tenant namespace (create-or-update)
-- AND it SHALL mount `ca-bundle.crt` at `/etc/pki/tls/certs/ca-bundle.crt` (read-only, subPath)
-- AND it SHALL add `SSL_CERT_FILE=/etc/pki/tls/certs/ca-bundle.crt` to the gateway container
+- THEN it SHALL copy the ConfigMap to the tenant namespace (create-or-update), adding a `ca.crt` key with the same content when the source has only `ca-bundle.crt`
+- AND it SHALL pass the copy to the chart as `server.oidc.caConfigMapName`
+- AND the rendered gateway SHALL mount the ConfigMap read-only at `/etc/openshell-tls/oidc-ca`
+- AND the rendered `gateway.toml` SHALL set `[openshell.gateway.oidc] ca_bundle = "/etc/openshell-tls/oidc-ca/ca.crt"`
+- AND the CA SHALL apply only to the gateway's OIDC discovery and JWKS requests, not to its other outbound TLS (upstream #3673, gateway 0.1.9 and later; no process-wide `SSL_CERT_FILE` is set)
 
 #### Scenario: OSG-TLS-03.02 -- Trusted CA ConfigMap absent
 
 - GIVEN no ConfigMap named `gateway-trusted-ca` exists in the HyperShell namespace
 - WHEN the GatewayReconciler reconciles a gateway
-- THEN it SHALL NOT add any CA volume or `SSL_CERT_FILE` env var
+- THEN it SHALL NOT add any OIDC CA volume or `ca_bundle` setting
 - AND the gateway SHALL use its built-in trust store
 
 ---

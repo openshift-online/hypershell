@@ -9,7 +9,8 @@ Gateway pod template shared by the StatefulSet and Deployment workload shapes.
 {{- $oidcRuntimeConfig := get $gatewayConfig "openshell.gateway.oidc" | default dict -}}
 {{- if not (get $oidcRuntimeConfig "issuer") -}}{{- $oidcRuntimeConfig = .Values.server.oidc | default dict -}}{{- end -}}
 {{- $kubernetesRuntimeConfig := include "openshell.effectiveKubernetesConfig" . | fromYaml -}}
-{{- $spiffeSocketPath := get $kubernetesRuntimeConfig "provider_spiffe_workload_api_socket_path" -}}
+{{- $broker := get $gatewayConfig "openshell.gateway.spiffe_broker" | default dict -}}
+{{- $spiffeSocketPath := get $broker "workload_api_socket_path" | default (get $kubernetesRuntimeConfig "provider_spiffe_workload_api_socket_path") -}}
 {{- $hasExternalCredentialDriver := or (eq (include "openshell.credentialDriverEnabled" (list . "kubernetes-secrets")) "true") (eq (include "openshell.credentialDriverEnabled" (list . "vault")) "true") -}}
 {{- $vaultCredentialDriverEnabled := eq (include "openshell.credentialDriverEnabled" (list . "vault")) "true" -}}
 {{- $credentialDrivers := .Values.credentialDrivers | default dict -}}
@@ -77,6 +78,12 @@ spec:
         - {{ .Values.server.dbUrl | quote }}
         {{- end }}
       env:
+        {{- if hasKey $broker "node_local_port" }}
+        - name: OPENSHELL_NODE_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        {{- end }}
         - name: OPENSHELL_REPLICA_ID
           valueFrom:
             fieldRef:
@@ -137,16 +144,7 @@ spec:
         {{- end }}
         # Most gateway settings live in the ConfigMap-backed TOML file
         # mounted at /etc/openshell/gateway.toml. Secret-bearing settings use
-        # env vars that the TOML references by name. Some process-level
-        # settings consumed by libraries outside gateway code also remain here.
-        {{- if and (get $oidcRuntimeConfig "issuer") .Values.server.oidc.caConfigMapName }}
-        # OIDC issuer custom-CA: rustls/reqwest read SSL_CERT_FILE for
-        # outbound TLS verification. This is a process-level env var
-        # consumed by the TLS stack itself, not by gateway code, so it
-        # cannot be represented in the gateway TOML schema.
-        - name: SSL_CERT_FILE
-          value: /etc/openshell-tls/oidc-ca/ca.crt
-        {{- end }}
+        # env vars that the TOML references by name.
         # The gateway stages normalized, content-addressed supervisor trust
         # artifacts under its XDG state directory. Keep that state on a
         # dedicated writable volume for both StatefulSet and Deployment modes.

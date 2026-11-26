@@ -79,18 +79,18 @@ spec:
               value: "0.0.0.0:9443"
             # Tags must match OPENSHELL_VERSION when bumping the OpenShell release.
             - name: GATEWAY_IMAGE
-              value: quay.io/opendatahub/odh-openshell-gateway:v0.1.8-rhaiv.0
+              value: quay.io/opendatahub/odh-openshell-gateway:v0.1.10-rhaiv.0
             - name: GATEWAY_SUPERVISOR_IMAGE
-              value: quay.io/opendatahub/odh-openshell-supervisor:v0.1.8-rhaiv.0
+              value: quay.io/opendatahub/odh-openshell-supervisor:v0.1.10-rhaiv.0
             - name: GATEWAY_SANDBOX_RUNTIME_IMAGE
-              value: quay.io/opendatahub/odh-openshell-sandbox:v0.1.8-rhaiv.0
+              value: quay.io/opendatahub/odh-openshell-sandbox:v0.1.10-rhaiv.0
             # Per-gateway console (quay.io/ai-openshell/console), pinned by digest.
             # Required: the controller refuses to start without it. Stamped from
             # OPENSHELL_CONSOLE_IMAGE and OPENSHELL_CONSOLE_DIGEST by
-            # `make sync-openshell-version`. Pinned to console release v0.1.4
+            # `make sync-openshell-version`. Pinned to console release v0.1.5
             # (gateway line 0.1); edit this release note by hand on a bump.
             - name: HYPERSHELL_CONSOLE_IMAGE
-              value: quay.io/ai-openshell/console@sha256:5c93f09dc9eae4ece3b46160c981b7c8ba573f3ab7b08b1ef4db4c297d7d5b37
+              value: quay.io/ai-openshell/console@sha256:de027da981bc7589f0ab16cffecbbc0e11501d17ca15794a82ae1edb16746716
             # Directory the gateway database admin credentials Secret is mounted
             # at (one file per key). The controller refuses to start without it.
             - name: GATEWAY_DATABASE_ADMIN_DIR
