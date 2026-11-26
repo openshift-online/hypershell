@@ -106,7 +106,7 @@ import {
   MAX_LOG_BUFFER,
   type E2eLogLine,
   type E2eDiagnosticSeverity,
-  type E2eRunAttemptItem,
+  type E2eRunAttemptGroup,
   type E2eRunDetail,
   type E2eRunEvent,
   type E2eRunsData,
@@ -774,6 +774,7 @@ function RunBundleIdentity({
 
 function RunsTable({
   runs,
+  showIndividualRuns,
   promotion,
   selectedId,
   onActivate,
@@ -783,6 +784,7 @@ function RunsTable({
 }: {
   promotion?: PromotionData;
   runs: readonly E2eRunSummary[];
+  showIndividualRuns: boolean;
   selectedId: string | null;
   /** Records the trigger element for focus restoration; navigation is the link's. */
   onActivate: (event: React.MouseEvent) => void;
@@ -792,8 +794,8 @@ function RunsTable({
 }): React.ReactElement {
   const intl = useIntl();
   // Per-group explicit expand/collapse overrides. A group with no override
-  // follows the auto-open default (open while it owns the selected older
-  // attempt); once the user toggles a group their choice wins, so a group opened
+  // follows the auto-open default (open while it owns the selected run).
+  // Once the user toggles a group their choice wins, so a group opened
   // by selecting a nested attempt can still be collapsed even while its drawer is
   // open and the selection persists (FLT-NAV-12).
   const [overrides, setOverrides] = useState<ReadonlyMap<string, boolean>>(
@@ -802,13 +804,26 @@ function RunsTable({
   const setGroupExpanded = useCallback((groupKey: string, value: boolean) => {
     setOverrides((prev) => new Map(prev).set(groupKey, value));
   }, []);
-  const attemptGroups = useMemo(
-    () => groupRunAttempts(runs, promotion),
-    [runs, promotion],
+  const rows = useMemo<
+    {
+      run: E2eRunSummary;
+      verdict: E2eVerdict;
+      group: E2eRunAttemptGroup | null;
+    }[]
+  >(
+    () =>
+      showIndividualRuns
+        ? runs.map((run) => ({ run, verdict: run.verdict, group: null }))
+        : groupRunAttempts(runs, promotion).map((group) => ({
+            run: group.latest.run,
+            verdict: group.verdict,
+            group,
+          })),
+    [runs, promotion, showIndividualRuns],
   );
-  const { sorted: groups, column } = useTableSort(
-    attemptGroups,
-    ({ latest: { run }, verdict }) => [
+  const { sorted, column } = useTableSort(
+    rows,
+    ({ run, verdict }) => [
       run.revision,
       run.runId,
       Date.parse(run.startedAt),
@@ -822,32 +837,26 @@ function RunsTable({
     2,
   );
 
-  const renderAttemptRow = (
-    item: E2eRunAttemptItem,
-    opts: {
-      readonly isParent: boolean;
-      readonly isExpanded: boolean;
-    },
+  const renderRunRow = (
+    run: E2eRunSummary,
+    attempt?: { number: number; isExpanded: boolean },
   ): React.ReactElement => {
-    const { run, attemptNumber } = item;
     const selected = run.id === selectedId;
-    const collapsed = !opts.isParent && !opts.isExpanded;
+    const collapsed = attempt?.isExpanded === false;
     const rowClasses = [
+      attempt ? styles.nestedAttemptRow : "",
       selected ? styles.selectedRow : "",
-      !opts.isParent ? styles.nestedAttemptRow : "",
       collapsed ? styles.collapsedAttemptRow : "",
     ]
-      .filter((c) => c !== "")
+      .filter(Boolean)
       .join(" ");
-    // Nested cells reveal with motion (height + padding animate between the
-    // collapsed and open states); the parent row renders its content directly.
     const reveal = (node: React.ReactNode): React.ReactNode =>
-      opts.isParent ? (
-        node
-      ) : (
+      attempt ? (
         <div className={styles.attemptReveal}>
           <div className={styles.attemptRevealInner}>{node}</div>
         </div>
+      ) : (
+        node
       );
     return (
       <Tr
@@ -855,12 +864,12 @@ function RunsTable({
         isRowSelected={selected}
         inert={collapsed}
         aria-hidden={collapsed || undefined}
-        className={rowClasses !== "" ? rowClasses : undefined}
+        className={rowClasses}
       >
         <Td dataLabel={intl.formatMessage(messages.e2eColumnBundle)}>
-          {opts.isParent ? (
+          {attempt ? null : (
             <RunBundleIdentity bundle={runBundle(run, promotion)} />
-          ) : null}
+          )}
         </Td>
         <Td dataLabel={intl.formatMessage(messages.e2eColumnTarget)}>
           {reveal(
@@ -896,15 +905,14 @@ function RunsTable({
         <Td dataLabel={intl.formatMessage(messages.e2eColumnAttempt)}>
           {reveal(
             <span className={styles.attemptCell}>
-              <Label isCompact>
-                {opts.isParent ? (
-                  <FormattedMessage {...messages.e2eAttemptMostRecent} />
-                ) : (
-                  intl.formatMessage(messages.e2eAttemptNumber, {
-                    number: attemptNumber,
-                  })
-                )}
-              </Label>
+              {attempt ? (
+                <Label isCompact>
+                  <FormattedMessage
+                    {...messages.e2eAttemptNumber}
+                    values={{ number: attempt.number }}
+                  />
+                </Label>
+              ) : null}
               <code className={styles.attemptId} title={run.runId}>
                 {run.runId.slice(0, 8)}
               </code>
@@ -965,19 +973,25 @@ function RunsTable({
           </Th>
         </Tr>
       </Thead>
-      {groups.map((group) => {
-        const hasMultiple = group.attempts.length > 1;
-        const selected = group.attempts.some(
-          (item) => item.run.id === selectedId,
-        );
-        const isExpanded = overrides.get(group.key) ?? selected;
-        const toggleLabel = intl.formatMessage(messages.e2eAttemptsToggle, {
-          expanded: String(isExpanded),
-          count: group.attempts.length,
-        });
-        return (
-          <Tbody key={group.key}>
-            {hasMultiple ? (
+      {showIndividualRuns ? (
+        <Tbody>{sorted.map(({ run }) => renderRunRow(run))}</Tbody>
+      ) : (
+        sorted.map(({ group }) => {
+          if (!group) return null;
+          const selected = group.attempts.some(
+            (item) => item.run.id === selectedId,
+          );
+          const isExpanded = overrides.get(group.key) ?? selected;
+          // A single-run bundle has one revision and duration, so its summary
+          // shows them; a multi-run bundle spans revisions and shows none.
+          const singleRun =
+            group.attempts.length === 1 ? group.latest.run : null;
+          const toggleLabel = intl.formatMessage(messages.e2eAttemptsToggle, {
+            expanded: String(isExpanded),
+            count: group.attempts.length,
+          });
+          return (
+            <Tbody key={group.key}>
               <Tr>
                 <Td dataLabel={intl.formatMessage(messages.e2eColumnBundle)}>
                   <span className={styles.bundleSummary}>
@@ -1008,33 +1022,37 @@ function RunsTable({
                 </Td>
                 <Td dataLabel={intl.formatMessage(messages.e2eColumnTarget)}>
                   <div className={styles.environmentSummaries}>
-                    {group.targets.map((run) => (
-                      <div key={run.id} className={styles.environmentSummary}>
-                        <span>
-                          {runTargetInstance(run, promotion) ?? run.cluster}
-                          <small className={styles.instance}>
-                            {runTargetInstance(run, promotion)
-                              ? intl.formatMessage(messages.e2eTargetLocation, {
-                                  cluster: run.cluster,
-                                  namespace: run.namespace,
-                                })
-                              : run.namespace}
-                          </small>
-                        </span>
-                        <StatusChip
-                          iconOnly
-                          visual={
-                            isRunning(run)
-                              ? stepStateVisual("running")
-                              : verdictVisual(run.verdict)
-                          }
-                        />
-                      </div>
-                    ))}
+                    {group.targets.map((run) => {
+                      const instance = runTargetInstance(run, promotion);
+                      return (
+                        <div key={run.id} className={styles.environmentSummary}>
+                          <span>
+                            {instance ?? run.cluster}
+                            {instance ? null : (
+                              <small className={styles.instance}>
+                                {run.namespace}
+                              </small>
+                            )}
+                          </span>
+                          <StatusChip
+                            iconOnly
+                            visual={
+                              isRunning(run)
+                                ? stepStateVisual("running")
+                                : verdictVisual(run.verdict)
+                            }
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
                 </Td>
                 <Td dataLabel={intl.formatMessage(messages.e2eColumnRevision)}>
-                  <FormattedMessage {...messages.valueNone} />
+                  {singleRun && singleRun.revision !== "" ? (
+                    singleRun.revision.slice(0, 8)
+                  ) : (
+                    <FormattedMessage {...messages.valueNone} />
+                  )}
                 </Td>
                 <Td dataLabel={intl.formatMessage(messages.e2eColumnAttempt)}>
                   <Label isCompact>
@@ -1048,7 +1066,11 @@ function RunsTable({
                   {formatAgo(intl, group.latest.run.startedAt, nowMs)}
                 </Td>
                 <Td dataLabel={intl.formatMessage(messages.e2eColumnDuration)}>
-                  <FormattedMessage {...messages.valueNone} />
+                  {singleRun ? (
+                    formatDuration(intl, runDurationMs(singleRun, nowMs))
+                  ) : (
+                    <FormattedMessage {...messages.valueNone} />
+                  )}
                 </Td>
                 <Td dataLabel={intl.formatMessage(messages.e2eColumnVerdict)}>
                   <StatusChip
@@ -1061,16 +1083,13 @@ function RunsTable({
                   />
                 </Td>
               </Tr>
-            ) : null}
-            {group.attempts.map((item) =>
-              renderAttemptRow(item, {
-                isParent: !hasMultiple,
-                isExpanded,
-              }),
-            )}
-          </Tbody>
-        );
-      })}
+              {group.attempts.map(({ run, attemptNumber }) =>
+                renderRunRow(run, { number: attemptNumber, isExpanded }),
+              )}
+            </Tbody>
+          );
+        })
+      )}
     </Table>
   );
 }
@@ -2314,6 +2333,7 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
                 <RunsTable
                   promotion={props.promotion}
                   runs={runs}
+                  showIndividualRuns={search !== ""}
                   selectedId={selectedId}
                   onActivate={(event) => {
                     // Record the trigger for focus restoration on close; the link

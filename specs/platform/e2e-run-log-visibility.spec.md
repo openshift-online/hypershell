@@ -376,9 +376,15 @@ framework-free domain, not in a component or adapter.
 
 The dashboard SHALL present an e2e-run view reachable from the promotion gate /
 environment. It SHALL group recent runs by resolved release bundle across target
-environments and deployed revisions. A bundle with multiple runs SHALL have one
-summary row displaying each observed environment's latest status, an overall
-status, the latest start time, and the total run count. Environment statuses SHALL
+environments and deployed revisions. Every bundle, including a bundle with a
+single run, SHALL have one collapsible summary row displaying each observed
+environment's latest status, an overall status, the latest start time, and the
+total run count. A single-run summary SHALL also show that run's revision and
+duration; a multi-run summary SHALL leave them empty, and sorting by Revision or
+Duration SHALL order bundles by their latest run. While a history search is
+active, matching runs SHALL be listed individually rather than grouped, each
+showing its own bundle identity, and grouping SHALL return when the search is
+cleared. Environment statuses SHALL
 use icons with localized accessible names and tooltips available on hover and
 keyboard focus, alongside the environment names. The summary Verdict column SHALL
 retain its visible status text. Expanded run rows SHALL retain their visible
@@ -479,6 +485,22 @@ overlap, and surface truncated history or dropped events.
 - AND different bundle digests SHALL remain separate even when their version labels match
 - AND unresolved bundles SHALL NOT be combined across target environments or deployed revisions
 - AND this display grouping SHALL NOT change exact-revision promotion-gate evidence correlation (E2E-LOG-09)
+
+#### Scenario: E2E-LOG-12.09 -- Single-run bundle summary
+
+- GIVEN a resolved release bundle with exactly one run
+- WHEN the history table renders
+- THEN the bundle SHALL show a collapsed summary row with its target, revision, start time, duration, a run count of one, and overall status
+- AND an unresolved or ambiguous target instance SHALL show cluster and namespace in the summary
+- AND expanding the summary SHALL reveal the run as a selectable row labeled "Run 1"
+
+#### Scenario: E2E-LOG-12.10 -- Search lists matching runs individually
+
+- GIVEN a bundle with several runs, some matching the history search
+- WHEN the operator enters the search
+- THEN each matching run SHALL be listed as its own selectable row showing its bundle identity, without bundle summary rows
+- AND non-matching runs of that bundle SHALL NOT be listed
+- AND clearing the search SHALL restore the grouped bundle summaries
 
 #### Scenario: E2E-LOG-12.02 -- Ordered steps with state and logs
 

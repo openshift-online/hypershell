@@ -185,14 +185,10 @@
   display: flex;
 }
 
-.nestedAttemptRow .attemptCell {
-  padding-inline-start: var(--pf-t--global--spacer--md, 16px);
-}
-
 /* Nested attempt rows stay mounted and reveal with motion. Each cell's content
    lives in a grid wrapper whose single row animates from 0fr (collapsed) to 1fr
-   (open); the cell's block padding and bottom border animate alongside so a
-   collapsed row occupies no height. Keeping the rows mounted lets the close
+   (open); the cell's block padding animates alongside. The row divider is
+   removed when collapsed so hidden rows take up no space. Keeping rows mounted lets the close
    animate too (unmounting would make collapse instant). */
 .attemptReveal {
   display: grid;
@@ -215,10 +211,13 @@
     padding-block-end 220ms ease;
 }
 
+.collapsedAttemptRow {
+  --pf-v6-c-table__tr--BorderBlockEndWidth: 0;
+}
+
 .collapsedAttemptRow > td {
   padding-block-start: 0;
   padding-block-end: 0;
-  border-block-end-width: 0;
 }
 
 /* Toggle chevron rotates between the collapsed and open states. */
@@ -521,7 +520,6 @@
 }
 
 .environmentSummaries {
-  max-width: 24rem;
   display: flex;
   flex-wrap: wrap;
   gap: var(--pf-t--global--spacer--sm) var(--pf-t--global--spacer--lg);
