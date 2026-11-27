@@ -396,26 +396,23 @@ function BoundCell({ bound }: { bound?: EffectiveBound }) {
   if (!bound) {
     return <Content component="small">No rule</Content>;
   }
+  // The Default column header names the fleet default, so it gets no chip.
   return (
-    <Stack>
-      <StackItem>
-        <Content component="p">
-          <strong>{bound.value}</strong>
-        </Content>
-      </StackItem>
-      <StackItem>
+    <>
+      <strong>{bound.value}</strong>
+      {bound.scope === "fleet" ? null : (
         <Flex flexWrap={{ default: "wrap" }} gap={{ default: "gapXs" }}>
           <FlexItem>
             <SourceLabel name={bound.source} scope={bound.scope} />
           </FlexItem>
-          {bound.enforced || bound.scope === "fleet" ? null : (
+          {bound.enforced ? null : (
             <FlexItem>
               <ModeLabel enforced={false} isCompact />
             </FlexItem>
           )}
         </Flex>
-      </StackItem>
-    </Stack>
+      )}
+    </>
   );
 }
 
@@ -425,7 +422,7 @@ function BoundCell({ bound }: { bound?: EffectiveBound }) {
  */
 export function EffectiveLimitsTable({ rows }: { rows: EffectiveRow[] }) {
   return (
-    <Table aria-label="Sandbox limits on this gateway">
+    <Table aria-label="Sandbox limits on this gateway" variant="compact">
       <Thead>
         <Tr>
           <Th width={20}>Resource</Th>

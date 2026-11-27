@@ -134,9 +134,9 @@ export function clearSession(request: {
 }
 
 /**
- * Standalone HTML for `/auth/denied`. Helmet's global CSP is `style-src
- * 'self'`, so the inline stylesheet is admitted only via a sha256 hash of
- * this document's `<style>` body (see `inlineStyleHashes` in app.ts).
+ * Standalone HTML for `/auth/denied`. Helmet's global CSP admits inline
+ * styles (`style-src 'self' 'unsafe-inline'`, see WEB-SEC-01), so the inline
+ * stylesheet needs no hash.
  */
 export const AUTH_DENIED_PAGE_HTML = `<!doctype html>
 <html lang="en">

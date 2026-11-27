@@ -470,9 +470,9 @@ export function GatewayPoliciesTab({
                     title={`${additionalRules.length} additional rule applies`}
                     variant="info"
                   >
-                    <List>
+                    <Stack hasGutter>
                       {additionalRules.map(({ policy, rule }) => (
-                        <ListItem key={rule}>
+                        <StackItem key={rule}>
                           {rule} (
                           <Button
                             isInline
@@ -482,9 +482,9 @@ export function GatewayPoliciesTab({
                             {policy.name}
                           </Button>
                           )
-                        </ListItem>
+                        </StackItem>
                       ))}
-                    </List>
+                    </Stack>
                   </Alert>
                 </StackItem>
               ) : null}

@@ -1,4 +1,5 @@
 import {
+  CedarCodeBlock,
   GatewayStatus,
   policyMessages,
   policyResourceLabel,
@@ -488,9 +489,7 @@ function SnippetModal({
             label={intl.formatMessage(messages.snippetPreview)}
           >
             {result.ok ? (
-              <CodeBlock id="snippet-preview">
-                <CodeBlockCode>{result.cedar}</CodeBlockCode>
-              </CodeBlock>
+              <CedarCodeBlock id="snippet-preview" source={result.cedar} />
             ) : (
               <Content component="small" id="snippet-preview">
                 {intl.formatMessage(messages.snippetPreviewEmpty)}

@@ -116,6 +116,12 @@ policies can only use `forbid` (PLAT-PGP-04). The editor SHALL NOT render
 author-supplied policy text or diagnostics through any raw-HTML injection path; it
 SHALL render React elements only.
 
+Read-only Cedar (policy detail, snippet preview, the gateway Policies tab, and the
+editor's loading placeholder) SHALL use the same Cedar syntax highlighting: one
+shared tokenizer whose keyword lists the editor's Monarch grammar reuses, rendered
+as React elements, with token colors that follow the PatternFly code editor theme
+and meet AA contrast.
+
 #### Scenario: WEB-PADM-05.01 -- Inline Diagnostic Names the Line and Suggests a Fix
 
 - GIVEN an author types a statement that uses `permit` or an unknown attribute

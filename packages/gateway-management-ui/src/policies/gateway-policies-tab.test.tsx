@@ -174,12 +174,35 @@ describe("GatewayPoliciesTab", () => {
       within(cpuRow).getAllByText("sandbox-resource-baseline"),
     ).toHaveLength(2);
     expect(within(cpuRow).getAllByText("Audit only")).toHaveLength(2);
-    expect(within(cpuRow).getByText("Fleet default")).toBeTruthy();
+    // The Default column header already names the fleet default.
+    expect(within(cpuRow).queryByText("Fleet default")).toBeNull();
     expect(
       within(limits).getByRole("row", { name: /^Memory limit/u }),
     ).toBeTruthy();
     expect(screen.queryByText(/All gateways/u)).toBeNull();
     expect(screen.queryByText(/except/u)).toBeNull();
+  });
+
+  // Verifies: WEB-GLIS-26.04
+  it("hides built-in policies such as the e2e enforcement canary", async () => {
+    const canary: EffectivePolicy = {
+      ...gpu,
+      builtIn: true,
+      id: "e2e-enforcement-canary-builtin",
+      name: "e2e-enforcement-canary",
+      userMessage: "Release-check canary.",
+    };
+    renderTab({
+      read: vi.fn(() =>
+        Promise.resolve(effectivePolicies({ policies: [baseline, canary] })),
+      ),
+    });
+
+    expect(
+      await screen.findAllByText("sandbox-resource-baseline"),
+    ).not.toHaveLength(0);
+    expect(screen.queryByText("e2e-enforcement-canary")).toBeNull();
+    expect(screen.queryByText(/additional rule/u)).toBeNull();
   });
 
   // Verifies: WEB-GLIS-26

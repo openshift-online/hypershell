@@ -13,12 +13,7 @@ import Fastify, {
   LogController,
 } from "fastify";
 
-import {
-  AUTH_DENIED_PAGE_HTML,
-  clearSession,
-  persistTokenSet,
-  registerAuth,
-} from "./auth.js";
+import { clearSession, persistTokenSet, registerAuth } from "./auth.js";
 import { queryAuthorizedGatewayInventory } from "./authorized-gateway-metrics.js";
 import { hasDashboardAdminRole } from "./roles.js";
 import {
@@ -247,10 +242,6 @@ function inlineScriptHashes(document: string): string[] {
   );
 }
 
-function inlineStyleHashes(document: string): string[] {
-  return cspHashes(document, /<style\b[^>]*>([\s\S]*?)<\/style>/giu);
-}
-
 function cspHashes(document: string, pattern: RegExp): string[] {
   const hashes = new Set<string>();
   for (const match of document.matchAll(pattern)) {
@@ -323,7 +314,6 @@ export async function buildApp(
   // version value never affects the CSP script hashes -- compute them once from
   // the initial render; later re-renders only swap the meta content.
   const scriptHashes = inlineScriptHashes(indexDocument);
-  const styleHashes = inlineStyleHashes(AUTH_DENIED_PAGE_HTML);
 
   const refreshApiVersion = async (): Promise<void> => {
     const next = await fetchApiVersion(config, app.log);
@@ -373,8 +363,14 @@ export async function buildApp(
         imgSrc: ["'self'", "data:"],
         objectSrc: ["'none'"],
         scriptSrc: ["'self'", ...scriptHashes],
-        styleSrc: ["'self'", ...styleHashes],
-        styleSrcAttr: ["'none'"],
+        // Inline styles are a reviewed exception (WEB-SEC-01): Monaco, inside
+        // the PatternFly CodeEditor (UIS-PFLY-11), positions view lines with
+        // style attributes and injects token colours as a runtime <style>,
+        // with no nonce support. Hashes cannot be listed alongside, because
+        // browsers ignore 'unsafe-inline' when a hash is present. Scripts
+        // stay hash-only.
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        styleSrcAttr: ["'unsafe-inline'"],
         // The BFF serves plain HTTP behind the deployment TLS terminator.
         // HTTPS already blocks mixed active content, while this directive
         // breaks direct local HTTP use in WebKit by upgrading relative assets.

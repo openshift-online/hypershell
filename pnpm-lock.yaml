@@ -5,6 +5,8 @@ settings:
   excludeLinksFromLockfile: false
   injectWorkspacePackages: true
 
+packageExtensionsChecksum: sha256-FfNMCEto+73Q0uHa0pH1nlFlbLJ5CmLHC9gG1g6El/U=
+
 importers:
 
   .: {}
@@ -6085,6 +6087,7 @@ snapshots:
       '@patternfly/react-core': 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@patternfly/react-icons': 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@patternfly/react-styles': 6.6.1
+      '@patternfly/react-tokens': 6.6.1
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
       react-dropzone: 14.3.5(react@19.2.8)

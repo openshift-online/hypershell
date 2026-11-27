@@ -77,7 +77,14 @@ describe("PlatformPolicyDetailPage", () => {
       screen.getByText(/Sandboxes on shared clusters must set CPU/u),
     ).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Cedar source" }));
-    expect(screen.getByText(/context\.cpuLimitMillis > 8000/u)).toBeTruthy();
+    // Highlighted Cedar splits into token spans; match the whole code element.
+    expect(
+      screen.getByText(
+        (_content, element) =>
+          element?.tagName === "CODE" &&
+          element.textContent.includes("context.cpuLimitMillis > 8000"),
+      ),
+    ).toBeTruthy();
   });
 
   it("shows an unrecognized statement as Cedar, never hidden", () => {
@@ -97,7 +104,12 @@ describe("PlatformPolicyDetailPage", () => {
     });
     expect(screen.getByText("Shown as Cedar")).toBeTruthy();
     expect(
-      screen.getByText("forbid (principal, action, resource) unless { true };"),
+      screen.getByText(
+        (_content, element) =>
+          element?.tagName === "CODE" &&
+          element.textContent ===
+            "forbid (principal, action, resource) unless { true };",
+      ),
     ).toBeTruthy();
   });
 

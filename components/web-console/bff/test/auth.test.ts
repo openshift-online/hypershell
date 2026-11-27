@@ -1455,7 +1455,7 @@ describe("web-console BFF with OIDC enabled", () => {
       expect(denied.body).toContain("Access denied");
       expect(denied.body).toContain('class="card"');
       expect(denied.headers["content-security-policy"]).toMatch(
-        /style-src[^;]*'sha256-/u,
+        /style-src 'self' 'unsafe-inline'/u,
       );
 
       const api = await gatedApp.inject({

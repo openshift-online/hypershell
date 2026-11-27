@@ -4547,10 +4547,6 @@
     "defaultMessage": "{resource} {value}",
     "description": "One request value in an audit finding, for example CPU request 100m."
   },
-  "app.policy.fleetDefault": {
-    "defaultMessage": "Fleet default",
-    "description": "Source label for a value that comes from the fleet defaults, not a policy."
-  },
   "app.policy.hideCedarSource": {
     "defaultMessage": "Hide Cedar source",
     "description": "Toggle that hides the Cedar source of a policy."

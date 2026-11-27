@@ -87,12 +87,6 @@ export const policyMessages = defineMessages({
     defaultMessage: "No rule",
     description: "Placeholder when no rule bounds a resource.",
   },
-  fleetDefault: {
-    id: "app.policy.fleetDefault",
-    defaultMessage: "Fleet default",
-    description:
-      "Source label for a value that comes from the fleet defaults, not a policy.",
-  },
   rulesInPolicy: {
     id: "app.policy.rulesInPolicy",
     defaultMessage: "Rules in {name}",
