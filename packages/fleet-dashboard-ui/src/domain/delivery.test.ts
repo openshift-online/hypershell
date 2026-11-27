@@ -177,6 +177,7 @@ describe("changeNowNext (FLT-DLV-10)", () => {
       kind: "stage",
       stage: expect.objectContaining({ key: "policy" }) as DeliveryStage,
       expectedAtMs: Date.parse("2026-11-01T15:24:00Z"),
+      thenOutside: false,
     });
     expect(row?.severity).toBe("info");
   });
@@ -697,5 +698,67 @@ describe("firstBundleOutcome (FLT-DLV-18)", () => {
 
   it("reports nothing before any promotion", () => {
     expect(firstBundleOutcome("b1", envOf([])).kind).toBe("none");
+  });
+});
+
+/** A change that built only an outside-bundle component: it ends at Release. */
+function outsideChange(
+  current: "build" | "policy" | "release",
+  state: DeliveryStageState,
+): DeliveryChange {
+  const keys = ["merged", "build", "policy"];
+  const at = keys.indexOf(current);
+  return {
+    ...change(SHA_A, "build", "running"),
+    stages: [
+      ...keys.map((k, i) =>
+        at === -1 || i < at
+          ? stage(k, "passed")
+          : i === at
+            ? stage(k, state)
+            : stage(k, "not-started"),
+      ),
+      stage("release", "not-needed", { reason: "outside-bundle" }),
+    ],
+  };
+}
+
+describe("outside-bundle changes (FLT-DLV-06.08)", () => {
+  // Verifies: FLT-DLV-06.08
+  it("is done here, in good severity, once its policy check passed", () => {
+    const c = outsideChange("release", "passed");
+    const d = data([c]);
+    const status = changeNowNext(d, c, FIXED_NOW);
+    expect(status).toEqual({ kind: "outside-bundle" });
+    expect(changeSeverity(status)).toBe("good");
+  });
+
+  // Verifies: FLT-DLV-06.08
+  it("says it then ships outside the bundle while it builds", () => {
+    const c = outsideChange("build", "running");
+    const row = rowOf(data([c]), FIXED_NOW);
+    expect(row?.next).toMatchObject({
+      kind: "stage",
+      stage: { key: "policy" },
+      thenOutside: true,
+    });
+  });
+
+  // Verifies: FLT-DLV-06.08
+  it("skips the Not needed Release after the policy check", () => {
+    const c = outsideChange("policy", "running");
+    const row = rowOf(data([c]), FIXED_NOW);
+    expect(row?.next).toEqual({ kind: "outside-bundle" });
+  });
+
+  // Verifies: FLT-DLV-06.08
+  it("draws progress cells only up to Release", () => {
+    const c = outsideChange("build", "running");
+    const model = progress(data([c]), c, FIXED_NOW);
+    expect(model.cells.map((cell) => cell.stage.key)).toEqual([
+      "build",
+      "policy",
+      "release",
+    ]);
   });
 });

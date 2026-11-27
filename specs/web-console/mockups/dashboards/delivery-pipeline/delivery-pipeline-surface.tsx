@@ -860,6 +860,10 @@ function ChangePanel({
                     </DescriptionListDescription>
                   </DescriptionListGroup>
                 </DescriptionList>
+              ) : change.outsideBundle ? (
+                <Content component="p">
+                  Done here - ships outside the bundle
+                </Content>
               ) : deliveredAt ? (
                 <Content component="p">
                   Delivered <Timed text={deliveredAt} />
@@ -871,7 +875,11 @@ function ChangePanel({
                 aria-label={`Delivery stages of ${name}`}
                 isVertical
               >
-                {STAGES.map((stage, i) => {
+                {/* FLT-DLV-06.08: an outside-bundle change ends at Release. */}
+                {(change.outsideBundle
+                  ? STAGES.filter((stage) => stage.key in change.stages)
+                  : STAGES
+                ).map((stage, i) => {
                   const cell = change.stages[stage.key] ?? {
                     state: "unknown" as const,
                   };

@@ -691,6 +691,16 @@ export function whereToLook(
   }
 }
 
+/**
+ * The change built only components no bundle lists, so its stages end at
+ * Release (FLT-DLV-06.08).
+ */
+export function shipsOutsideBundle(change: DeliveryChange): boolean {
+  return change.stages.some(
+    (s) => s.key === "release" && s.reason === "outside-bundle",
+  );
+}
+
 /** The earliest stage that is not Passed or Not needed, or null when none. */
 export function currentStageIndex(change: DeliveryChange): number | null {
   const i = change.stages.findIndex(
@@ -715,7 +725,11 @@ export type NextPart =
       readonly stage: DeliveryStage;
       /** When the next stage is expected to finish; null when unknown or Overdue. */
       readonly expectedAtMs: number | null;
+      /** The change then ships outside the bundle (FLT-DLV-06.08). */
+      readonly thenOutside: boolean;
     }
+  /** The current stage is the last one before shipping outside the bundle. */
+  | { readonly kind: "outside-bundle" }
   /** The current stage failed: what restarts the pipeline. */
   | { readonly kind: "restart"; readonly restart: "new-change" | "gate-retry" }
   /** A newer bundle will restart a group's gate (FLT-DLV-10.07). */
@@ -770,9 +784,13 @@ function nowNextRow(
       restart: def?.kind === "group" ? "gate-retry" : "new-change",
     };
   } else {
-    const following = change.stages[index + 1];
+    // An outside-bundle change skips its Not needed Release (FLT-DLV-06.08).
+    const outside = shipsOutsideBundle(change);
+    const following = change.stages
+      .slice(index + 1)
+      .find((s) => !outside || s.state !== "not-needed");
     if (following === undefined) {
-      next = { kind: "none" };
+      next = outside ? { kind: "outside-bundle" } : { kind: "none" };
     } else {
       // Remaining time of the current stage (never below zero) plus the
       // estimate of the next one; none while a stage is Overdue (FLT-DLV-10).
@@ -785,7 +803,12 @@ function nowNextRow(
         const left = Math.max(0, now.estimateMs - (now.elapsedMs ?? 0));
         expectedAtMs = nowMs + left + following.estimateMs;
       }
-      next = { kind: "stage", stage: following, expectedAtMs };
+      next = {
+        kind: "stage",
+        stage: following,
+        expectedAtMs,
+        thenOutside: outside,
+      };
     }
   }
 
@@ -804,7 +827,9 @@ export type ChangeNowNext =
       readonly totalMs: number | null;
     }
   /** Not delivered, and every stage passed or was not needed. */
-  | { readonly kind: "none" };
+  | { readonly kind: "none" }
+  /** Every stage passed and the change ships outside the bundle (FLT-DLV-06.08). */
+  | { readonly kind: "outside-bundle" };
 
 /** Where one change is now and what comes next (FLT-DLV-10). */
 export function changeNowNext(
@@ -825,9 +850,12 @@ export function changeNowNext(
     };
   }
   const index = currentStageIndex(change);
-  return index === null
-    ? { kind: "none" }
-    : { kind: "in-flight", row: nowNextRow(data, change, index, nowMs) };
+  if (index === null) {
+    return shipsOutsideBundle(change)
+      ? { kind: "outside-bundle" }
+      : { kind: "none" };
+  }
+  return { kind: "in-flight", row: nowNextRow(data, change, index, nowMs) };
 }
 
 /** The severity of a change panel: good once delivered (FLT-DLV-10). */
@@ -836,6 +864,7 @@ export function changeSeverity(status: ChangeNowNext): DeliverySeverity {
     case "in-flight":
       return status.row.severity;
     case "delivered":
+    case "outside-bundle":
       return "good";
     default:
       return "info";
