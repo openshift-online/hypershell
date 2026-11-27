@@ -98,6 +98,7 @@ type Manager struct {
 	openShell  OpenShellClient
 	httpClient *http.Client
 	locks      sync.Map
+	tokenCache sync.Map
 }
 
 func NewManager(provider Provider, kube kubernetes.Interface, openShell OpenShellClient) *Manager {
@@ -127,15 +128,6 @@ func (m *Manager) AddMember(ctx context.Context, request MemberRequest) error {
 		return fmt.Errorf("authenticate gateway bootstrap admin: %w", err)
 	}
 	endpoint := clusterLocalGatewayEndpoint(request.GatewayNamespace)
-	alreadyMember, err := m.openShell.HasWorkspaceMember(
-		ctx, endpoint, request.GatewayNamespace, accessToken, "default", request.Subject,
-	)
-	if err != nil {
-		return fmt.Errorf("check default-workspace member: %w", err)
-	}
-	if alreadyMember {
-		return nil
-	}
 	if err := m.openShell.AddMember(
 		ctx, endpoint, request.GatewayNamespace,
 		accessToken, request.Subject, request.Role,

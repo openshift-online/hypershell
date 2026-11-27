@@ -9,9 +9,26 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
+const tokenCacheSkew = 30 * time.Second
+
+type cachedAccessToken struct {
+	token     string
+	expiresAt time.Time
+}
+
 func (m *Manager) accessToken(ctx context.Context, issuer string, admin *bootstrapAdmin) (string, error) {
+	cacheKey := admin.ClientUUID
+	if cached, ok := m.tokenCache.Load(cacheKey); ok {
+		token := cached.(*cachedAccessToken)
+		if time.Now().Before(token.expiresAt) {
+			return token.token, nil
+		}
+		m.tokenCache.Delete(cacheKey)
+	}
+
 	form := url.Values{
 		"grant_type":    {"client_credentials"},
 		"client_id":     {admin.ClientID},
@@ -35,9 +52,16 @@ func (m *Manager) accessToken(ctx context.Context, issuer string, admin *bootstr
 	var result struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int64  `json:"expires_in"`
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result); err != nil || result.AccessToken == "" || result.RefreshToken != "" {
 		return "", errors.New("parse gateway bootstrap-admin token response")
+	}
+	if lifetime := time.Duration(result.ExpiresIn) * time.Second; lifetime > tokenCacheSkew {
+		m.tokenCache.Store(cacheKey, &cachedAccessToken{
+			token:     result.AccessToken,
+			expiresAt: time.Now().Add(lifetime - tokenCacheSkew),
+		})
 	}
 	return result.AccessToken, nil
 }

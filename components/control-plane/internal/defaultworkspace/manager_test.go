@@ -19,7 +19,9 @@ import (
 )
 
 func TestManagerAddMemberProvisionsAdminAndReusesStoredCredential(t *testing.T) {
+	tokenRequests := 0
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		tokenRequests++
 		if err := request.ParseForm(); err != nil {
 			t.Errorf("parse token form: %v", err)
 		}
@@ -29,7 +31,7 @@ func TestManagerAddMemberProvisionsAdminAndReusesStoredCredential(t *testing.T) 
 			t.Errorf("token request form = %#v", request.Form)
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"access_token":"bootstrap-token"}`))
+		_, _ = writer.Write([]byte(`{"access_token":"bootstrap-token","expires_in":300}`))
 	}))
 	defer tokenServer.Close()
 
@@ -54,7 +56,10 @@ func TestManagerAddMemberProvisionsAdminAndReusesStoredCredential(t *testing.T) 
 	if provider.provisionCalls != 1 {
 		t.Fatalf("provision calls = %d, want 1", provider.provisionCalls)
 	}
-	if openShell.addCalls != 2 || openShell.hasCalls != 2 ||
+	if tokenRequests != 1 {
+		t.Fatalf("token requests = %d, want 1", tokenRequests)
+	}
+	if openShell.addCalls != 2 || openShell.hasCalls != 0 ||
 		openShell.endpoint != "https://openshell-gateway.gateway-namespace.svc.cluster.local:8080" ||
 		openShell.accessToken != "bootstrap-token" || openShell.subject != "subject-id" {
 		t.Fatalf("OpenShell add calls = %d, has calls = %d, endpoint = %q, token = %q, subject = %q",
@@ -90,31 +95,12 @@ func TestManagerAddMemberTreatsOpenShellAlreadyExistsAsSuccess(t *testing.T) {
 	}
 }
 
-func TestManagerAddMemberSkipsAddWhenMembershipAlreadyExists(t *testing.T) {
-	tokenServer := newTokenServer(t)
-	defer tokenServer.Close()
-	openShell := &fakeOpenShellClient{existingMember: true}
-	manager := NewManager(
-		&fakeProvider{issuer: tokenServer.URL}, fake.NewSimpleClientset(), openShell,
-	)
-
-	if err := manager.AddMember(t.Context(), validMemberRequest(tokenServer.URL)); err != nil {
-		t.Fatalf("AddMember() error = %v", err)
-	}
-	if openShell.addCalls != 0 {
-		t.Fatalf("add calls = %d, want 0", openShell.addCalls)
-	}
-	if openShell.hasCalls != 1 {
-		t.Fatalf("has calls = %d, want 1", openShell.hasCalls)
-	}
-}
-
 func TestManagerAddMemberTreatsFailedPreconditionAsSuccessWhenMembershipExists(t *testing.T) {
 	tokenServer := newTokenServer(t)
 	defer tokenServer.Close()
 	openShell := &fakeOpenShellClient{
-		err:                         status.Error(codes.FailedPrecondition, "member exists"),
-		membershipAppearsAfterCheck: true,
+		err:            status.Error(codes.FailedPrecondition, "member exists"),
+		existingMember: true,
 	}
 	manager := NewManager(
 		&fakeProvider{issuer: tokenServer.URL}, fake.NewSimpleClientset(), openShell,
@@ -123,8 +109,8 @@ func TestManagerAddMemberTreatsFailedPreconditionAsSuccessWhenMembershipExists(t
 	if err := manager.AddMember(t.Context(), validMemberRequest(tokenServer.URL)); err != nil {
 		t.Fatalf("AddMember() error = %v", err)
 	}
-	if openShell.addCalls != 1 || openShell.hasCalls != 2 {
-		t.Fatalf("add calls = %d, has calls = %d; want 1, 2", openShell.addCalls, openShell.hasCalls)
+	if openShell.addCalls != 1 || openShell.hasCalls != 1 {
+		t.Fatalf("add calls = %d, has calls = %d; want 1, 1", openShell.addCalls, openShell.hasCalls)
 	}
 }
 
@@ -224,7 +210,7 @@ func newTokenServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"access_token":"bootstrap-token"}`))
+		_, _ = writer.Write([]byte(`{"access_token":"bootstrap-token","expires_in":300}`))
 	}))
 }
 
