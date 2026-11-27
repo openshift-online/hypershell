@@ -6,3 +6,15 @@ kind: Kustomization
 resources:
   - api-server.yaml
   - web-console.yaml
+
+# Default cost dashboard rate card (WEB-COST-03). IBM Cloud list prices for
+# Red Hat OpenShift on VPC gen2 workers in us-east, November 2026: VSI vCPU and
+# memory plus the OpenShift license per vCPU. Overlays replace this ConfigMap to
+# set their own rates.
+configMapGenerator:
+  - name: hypershell-cost-rate-card
+    namespace: hypershell-system
+    files:
+      - rate-card.json=cost-rate-card.json
+    options:
+      disableNameSuffixHash: true

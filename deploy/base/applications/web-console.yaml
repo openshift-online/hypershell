@@ -42,6 +42,12 @@ spec:
               value: "production"
             - name: HYPERSHELL_API_ORIGIN
               value: "http://hypershell-api-server.hypershell-system.svc.cluster.local:8000"
+            - name: COST_RATE_CARD_FILE
+              value: "/etc/hypershell/cost/rate-card.json"
+          volumeMounts:
+            - name: cost-rate-card
+              mountPath: /etc/hypershell/cost
+              readOnly: true
           startupProbe:
             httpGet:
               path: /health/ready
@@ -65,6 +71,10 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
+      volumes:
+        - name: cost-rate-card
+          configMap:
+            name: hypershell-cost-rate-card
 ---
 apiVersion: v1
 kind: Service

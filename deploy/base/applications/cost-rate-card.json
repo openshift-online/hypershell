@@ -1,0 +1,14 @@
+{
+  "currency": "USD",
+  "version": "ibm-us-east-2026-11",
+  "defaults": {
+    "cpu_core_hour": 0.0743,
+    "memory_gib_hour": 0.0050
+  },
+  "providers": {
+    "ibm": {
+      "cpu_core_hour": 0.0743,
+      "memory_gib_hour": 0.0050
+    }
+  }
+}
