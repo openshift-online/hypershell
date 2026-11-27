@@ -124,6 +124,10 @@ type Release struct {
 	// to decide which changes a bundle contains (FLT-DLV-06). Internal only and
 	// read-only once built: copies share it.
 	Components map[string]string `json:"-"`
+	// SameAs is the digest of the bundle published just before this one when
+	// both carry the same component revisions: this bundle is a re-cut with no
+	// new code (FLT-DLV-23.06, SDLC-VIS-11.07). Empty otherwise.
+	SameAs string `json:"sameAs,omitempty"`
 }
 
 // DeploymentRevision is one environment's current gitops source (dry) commit for a
@@ -423,6 +427,8 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 	// bundle (the single-deployed-bundle case has no peer to diff against until
 	// history is present).
 	p.bundler.Enrich(ctx, payload.Releases)
+	// Name re-cut bundles over the same full set, after the dates are resolved.
+	markRecuts(payload.Releases)
 	return payload, nil
 }
 

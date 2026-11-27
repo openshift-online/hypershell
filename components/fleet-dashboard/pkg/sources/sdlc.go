@@ -248,6 +248,9 @@ type SDLCBundleRow struct {
 	OtherPRs     []SDLCPullRequest  `json:"otherPRs"`
 	GitOpsPRs    []SDLCPullRequest  `json:"gitopsPrs,omitempty"`
 	GitOpsStatus string             `json:"gitopsStatus,omitempty"`
+	// SameAs is the digest of the bundle this row's bundle is a re-cut of
+	// (SDLC-VIS-11.07), carried from the shared promotion release.
+	SameAs string `json:"sameAs,omitempty"`
 }
 
 // SDLCMatrix is the release-by-hub-cluster matrix (the Shipped column).
@@ -506,6 +509,7 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 			HubClusters: hubsByKey[rr.key],
 			Issues:      sortedShipped(tracked),
 			OtherPRs:    sortedPRs(others),
+			SameAs:      rr.rel.SameAs,
 		}
 		// Carry the bundle's GitOps deployment group straight from the shared bundle
 		// enrichment that also feeds Fleet Map (SDLC-VIS-25): same bundle identity, same

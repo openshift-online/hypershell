@@ -211,6 +211,7 @@ interface WireNow {
     readonly publishedAt?: string;
     readonly lockedAt?: string;
     readonly pr?: number;
+    readonly sameAs?: string;
   } | null;
   readonly checks?:
     | readonly {
@@ -446,6 +447,7 @@ function mapNow(raw: WireNow | null | undefined): DeliveryNow {
           publishedAt: str(gitops.publishedAt),
           lockedAt: str(gitops.lockedAt),
           pr: positive(gitops.pr),
+          sameAs: str(gitops.sameAs),
         }
       : null,
     checks: (raw?.checks ?? []).map((c) => ({

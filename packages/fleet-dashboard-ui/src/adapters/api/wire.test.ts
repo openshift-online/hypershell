@@ -549,6 +549,21 @@ describe("mapSdlc", () => {
     expect(data.matrix.rows[1]?.otherPRs[0]?.mergedAt).toBeNull();
   });
 
+  // Verifies: SDLC-VIS-11.07
+  it("decodes a re-cut row's twin, and null when absent", () => {
+    const data = mapSdlc({
+      matrix: {
+        hubClusters: [],
+        rows: [
+          { version: "v2", digest: "d2", sameAs: "d1" },
+          { version: "v1", digest: "d1" },
+        ],
+      },
+    });
+    expect(data.matrix.rows[0]?.sameAs).toBe("d1");
+    expect(data.matrix.rows[1]?.sameAs).toBeNull();
+  });
+
   // Verifies: SDLC-VIS-25.01, SDLC-VIS-25.03, SDLC-VIS-25.05
   it("decodes the GitOps deployment group with repository/environment identity", () => {
     const data = mapSdlc({

@@ -1266,6 +1266,12 @@ export const messages = defineMessages({
     description:
       "Pull-request count part of a release bundle row's compact summary.",
   },
+  sdlcBundleSameAs: {
+    id: "fleet.sdlc.bundle.sameAs",
+    defaultMessage: "Same as {bundle} - no new code",
+    description:
+      "Under a release bundle row's summary: the bundle is a re-cut of the named bundle, with the same component revisions.",
+  },
   sdlcBundleSummary: {
     id: "fleet.sdlc.bundle.summary",
     defaultMessage: "{issues}, {prs}",
