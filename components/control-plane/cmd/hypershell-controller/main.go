@@ -464,14 +464,21 @@ func main() {
 			slog.WarnContext(ctx, "Gateway reconciler disabled", "error", grErr)
 			gatewayReconciler = reconciler.NewStubGatewayReconciler()
 		} else {
+			// The controller's own image: the policy interceptor sidecar runs it
+			// (PLAT-PGP-09), and it is the deployed_bundle fallback (PLAT-DATA-34).
+			podName := os.Getenv("HYPERSHELL_POD_NAME")
+			if podName == "" {
+				// A pod's hostname is its name unless the spec overrides it.
+				podName, _ = os.Hostname()
+			}
+			ownImage, imgErr := reconciler.OwnImage(ctx, clientset, cfg.Namespace, podName, "controller")
+			if imgErr != nil && cfg.ReleaseBundle == "" && !cfg.PolicyEnabled {
+				slog.WarnContext(ctx, "Cannot read the controller's own image; deployed_bundle is not recorded", "error", imgErr)
+			}
+			deployedBundle := reconciler.DeployedBundle(cfg.ReleaseBundle, ownImage)
+			gr.SetDeployedBundle(deployedBundle)
+			slog.InfoContext(ctx, "Gateway deployed_bundle identity", "deployed_bundle", deployedBundle)
 			if cfg.PolicyEnabled {
-				// The sidecar runs the controller's own build (PLAT-PGP-09).
-				podName := os.Getenv("HYPERSHELL_POD_NAME")
-				if podName == "" {
-					// A pod's hostname is its name unless the spec overrides it.
-					podName, _ = os.Hostname()
-				}
-				ownImage, imgErr := reconciler.OwnImage(ctx, clientset, cfg.Namespace, podName, "controller")
 				if imgErr != nil {
 					fatal("Platform gateway policy is enabled but the controller cannot read its own image", "error", imgErr)
 				}

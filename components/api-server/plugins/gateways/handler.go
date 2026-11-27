@@ -360,6 +360,26 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 	handlers.Handle(w, r, cfg, http.StatusOK)
 }
 
+// Redeploy records an administrator redeploy request (PLAT-DATA-33): the
+// gateway's generation advances so the control plane applies it again with its
+// current chart and default images. The authorization middleware allows only
+// platform:admin (SEC-RBAC-36); the handler takes no body.
+func (h gatewayHandler) Redeploy(w http.ResponseWriter, r *http.Request) {
+	cfg := &handlers.HandlerConfig{
+		Action: func() (interface{}, *errors.ServiceError) {
+			ctx := r.Context()
+			gatewayModel, err := h.gateway.Redeploy(ctx, mux.Vars(r)["id"])
+			if err != nil {
+				return nil, err
+			}
+			bindings := h.callerBindings(ctx)
+			return PresentGateway(gatewayModel, h.creatorUsername(ctx, gatewayModel.ID), h.callerCanDelete(bindings, gatewayModel.ID), h.callerCanEdit(bindings, gatewayModel.ID)), nil
+		},
+		ErrorHandler: handlers.HandleError,
+	}
+	handlers.HandleGet(w, r, cfg)
+}
+
 // gatewayDefaultOrder and gatewayOrderTiebreak express the gateway list's
 // default newest-first ordering: creation time descending with a stable
 // secondary order by identifier so equal creation timestamps are deterministic

@@ -2313,6 +2313,27 @@ places by capability selector only.
 - THEN exactly one built-in `gateway:cluster-targeting` role SHALL exist
 - AND it SHALL be JWT-synced, global-scope, and not assignable through the RoleBinding API
 
+### Requirement: SEC-RBAC-36 -- Gateway Redeploy Is Platform-Admin Only
+
+The gateway redeploy action (`POST /api/hypershell/v1/gateways/{id}/redeploy`,
+[`platform/data-model.spec.md`](../platform/data-model.spec.md), PLAT-DATA-33)
+SHALL be allowed only for a caller holding `platform:admin`. Every other caller
+SHALL get `403 Forbidden`: a `gateway:owner`, `gateway:admin`, or
+`gateway:viewer` of that gateway, and a caller with no binding on it. The action
+is not a field write, so it does not pass through the field policy
+(SEC-RBAC-18), and it cannot set any workload field.
+
+#### Scenario: SEC-RBAC-36.01 -- Platform admin may redeploy
+- GIVEN a caller holding `platform:admin`
+- WHEN it requests a redeploy of any gateway
+- THEN the request SHALL be authorized
+
+#### Scenario: SEC-RBAC-36.02 -- Gateway roles may not redeploy
+- GIVEN a caller holding `gateway:owner`, `gateway:admin`, or `gateway:viewer` on a gateway, or no binding on it
+- WHEN it requests a redeploy of that gateway
+- THEN the API server SHALL return `403 Forbidden`
+- AND the gateway's `generation` SHALL be unchanged
+
 ### Requirement: SEC-RBAC-35 -- Purpose Label Gate
 
 The `purpose` capability namespace holds labels a cluster advertises to say what

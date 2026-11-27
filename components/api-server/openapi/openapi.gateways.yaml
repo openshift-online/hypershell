@@ -254,6 +254,50 @@ paths:
                 $ref: 'openapi.yaml#/components/schemas/Error'
     parameters:
       - $ref: '#/components/parameters/id'
+  /api/hypershell/v1/gateways/{id}/redeploy:
+    post:
+      operationId: redeployGateway
+      summary: Redeploy a gateway with the control plane's current chart and images
+      description: |
+        Records an administrator redeploy request (data-model.spec.md PLAT-DATA-33).
+        The API server sets redeploy_requested_at and advances generation, so the
+        control plane applies the gateway again with its current chart and default
+        images. Allowed for platform:admin only (SEC-RBAC-36). No request body.
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: Redeploy recorded; the gateway is returned with its new generation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Gateway'
+        '401':
+          description: Auth token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '403':
+          description: Caller is not a platform administrator
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '404':
+          description: No gateway with specified id exists, or it was deleted
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          description: Unexpected error recording the redeploy
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+    parameters:
+      - $ref: '#/components/parameters/id'
 components:
   schemas:
     # NEW SCHEMA START
@@ -325,6 +369,15 @@ components:
               type: string
               readOnly: true
               description: Runtime version from the last successful gateway health response
+            deployed_bundle:
+              type: string
+              readOnly: true
+              description: Control-plane build (release bundle name, or controller image) that ran the last successful provisioning pass (PLAT-DATA-34)
+            redeploy_requested_at:
+              type: string
+              format: date-time
+              readOnly: true
+              description: Time of the last administrator redeploy request (PLAT-DATA-33)
             oidc:
               type: string
               readOnly: true

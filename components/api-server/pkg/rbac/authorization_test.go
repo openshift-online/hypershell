@@ -1206,3 +1206,33 @@ func TestCanReadGatewayResources(t *testing.T) {
 		t.Error("an empty gateway id must never be readable")
 	}
 }
+
+// Verifies: SEC-RBAC-36.01, SEC-RBAC-36.02
+func TestIsAuthorized_GatewayRedeployIsPlatformAdminOnly(t *testing.T) {
+	gwID := "gw-redeploy"
+	gwBinding := func(role string) BindingSummary {
+		id := gwID
+		return BindingSummary{RoleName: role, Scope: "gateway", GatewayID: &id}
+	}
+	cases := []struct {
+		name     string
+		method   string
+		bindings []BindingSummary
+		want     bool
+	}{
+		{"platform admin", http.MethodPost, []BindingSummary{{RoleName: "platform:admin", Scope: "global"}}, true},
+		{"platform admin wrong method", http.MethodGet, []BindingSummary{{RoleName: "platform:admin", Scope: "global"}}, false},
+		{"gateway owner", http.MethodPost, []BindingSummary{gwBinding("gateway:owner")}, false},
+		{"gateway admin", http.MethodPost, []BindingSummary{gwBinding("gateway:admin")}, false},
+		{"gateway viewer", http.MethodPost, []BindingSummary{gwBinding("gateway:viewer")}, false},
+		{"gateway creator", http.MethodPost, []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}, false},
+		{"no binding", http.MethodPost, nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isAuthorized(tc.method, "gateway_redeploy", gwID, "", tc.bindings, nil, false); got != tc.want {
+				t.Errorf("isAuthorized = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

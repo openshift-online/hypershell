@@ -292,8 +292,14 @@ type Gateway struct {
 	// dedicated_route records that the gateway requested the dedicated route and
 	// per-gateway wildcard certificate path at creation. Read-only after creation.
 	DedicatedRoute *bool `protobuf:"varint,32,opt,name=dedicated_route,json=dedicatedRoute,proto3,oneof" json:"dedicated_route,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// deployed_bundle names the control-plane build that ran the last successful
+	// provisioning pass (data-model.spec.md PLAT-DATA-34). Control-plane-observed.
+	DeployedBundle *string `protobuf:"bytes,33,opt,name=deployed_bundle,json=deployedBundle,proto3,oneof" json:"deployed_bundle,omitempty"`
+	// redeploy_requested_at is the time of the last administrator redeploy
+	// request (PLAT-DATA-33). Server-owned; unset when none was made.
+	RedeployRequestedAt *timestamppb.Timestamp `protobuf:"bytes,34,opt,name=redeploy_requested_at,json=redeployRequestedAt,proto3" json:"redeploy_requested_at,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *Gateway) Reset() {
@@ -499,6 +505,20 @@ func (x *Gateway) GetDedicatedRoute() bool {
 		return *x.DedicatedRoute
 	}
 	return false
+}
+
+func (x *Gateway) GetDeployedBundle() string {
+	if x != nil && x.DeployedBundle != nil {
+		return *x.DeployedBundle
+	}
+	return ""
+}
+
+func (x *Gateway) GetRedeployRequestedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.RedeployRequestedAt
+	}
+	return nil
 }
 
 type CreateGatewayRequest struct {
@@ -839,8 +859,11 @@ type UpdateGatewayRequest struct {
 	// workspace_mode may only re-send the stored value; changing it is rejected
 	// and omitting it keeps the stored value.
 	WorkspaceMode *string `protobuf:"bytes,24,opt,name=workspace_mode,json=workspaceMode,proto3,oneof" json:"workspace_mode,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// deployed_bundle is written by the control plane together with
+	// observed_generation after a successful pass (PLAT-DATA-34).
+	DeployedBundle *string `protobuf:"bytes,25,opt,name=deployed_bundle,json=deployedBundle,proto3,oneof" json:"deployed_bundle,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *UpdateGatewayRequest) Reset() {
@@ -1002,6 +1025,13 @@ func (x *UpdateGatewayRequest) GetObservedGeneration() int64 {
 func (x *UpdateGatewayRequest) GetWorkspaceMode() string {
 	if x != nil && x.WorkspaceMode != nil {
 		return *x.WorkspaceMode
+	}
+	return ""
+}
+
+func (x *UpdateGatewayRequest) GetDeployedBundle() string {
+	if x != nil && x.DeployedBundle != nil {
+		return *x.DeployedBundle
 	}
 	return ""
 }
@@ -1967,8 +1997,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\tplacement\"f\n" +
 	"\x1bCapabilitySelectorPlacement\x12\x1a\n" +
 	"\bselector\x18\x01 \x03(\tR\bselector\x12+\n" +
-	"\x11excluded_selector\x18\x02 \x03(\tR\x10excludedSelector\"\xbf\n" +
-	"\n" +
+	"\x11excluded_selector\x18\x02 \x03(\tR\x10excludedSelector\"\xd1\v\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -1999,7 +2028,9 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x13observed_generation\x18\x1b \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01\x12(\n" +
 	"\rrepository_id\x18\x1e \x01(\tH\x0fR\frepositoryId\x88\x01\x01\x12*\n" +
 	"\x0eworkspace_mode\x18\x1f \x01(\tH\x10R\rworkspaceMode\x88\x01\x01\x12,\n" +
-	"\x0fdedicated_route\x18  \x01(\bH\x11R\x0ededicatedRoute\x88\x01\x01B\x0f\n" +
+	"\x0fdedicated_route\x18  \x01(\bH\x11R\x0ededicatedRoute\x88\x01\x01\x12,\n" +
+	"\x0fdeployed_bundle\x18! \x01(\tH\x12R\x0edeployedBundle\x88\x01\x01\x12N\n" +
+	"\x15redeploy_requested_at\x18\" \x01(\v2\x1a.google.protobuf.TimestampR\x13redeployRequestedAtB\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -2017,7 +2048,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x14_observed_generationB\x10\n" +
 	"\x0e_repository_idB\x11\n" +
 	"\x0f_workspace_modeB\x12\n" +
-	"\x10_dedicated_route\"\x9e\x06\n" +
+	"\x10_dedicated_routeB\x12\n" +
+	"\x10_deployed_bundle\"\x9e\x06\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
@@ -2056,7 +2088,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0finclude_deleted\x18\x02 \x01(\bR\x0eincludeDeleted\"F\n" +
 	"\x12GetGatewayResponse\x120\n" +
-	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xf4\a\n" +
+	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xb6\b\n" +
 	"\x14UpdateGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\"\n" +
@@ -2079,7 +2111,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x0fconsole_address\x18\x14 \x01(\tH\rR\x0econsoleAddress\x88\x01\x01\x12]\n" +
 	"\x17provisioning_conditions\x18\x15 \x03(\v2$.hypershell.v1.ProvisioningConditionR\x16provisioningConditions\x124\n" +
 	"\x13observed_generation\x18\x17 \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01\x12*\n" +
-	"\x0eworkspace_mode\x18\x18 \x01(\tH\x0fR\rworkspaceMode\x88\x01\x01B\a\n" +
+	"\x0eworkspace_mode\x18\x18 \x01(\tH\x0fR\rworkspaceMode\x88\x01\x01\x12,\n" +
+	"\x0fdeployed_bundle\x18\x19 \x01(\tH\x10R\x0edeployedBundle\x88\x01\x01B\a\n" +
 	"\x05_nameB\r\n" +
 	"\v_cluster_idB\x0f\n" +
 	"\r_external_dnsB\v\n" +
@@ -2095,7 +2128,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x12_credential_driverB\x12\n" +
 	"\x10_console_addressB\x16\n" +
 	"\x14_observed_generationB\x11\n" +
-	"\x0f_workspace_mode\"I\n" +
+	"\x0f_workspace_modeB\x12\n" +
+	"\x10_deployed_bundle\"I\n" +
 	"\x15UpdateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"U\n" +
 	"\x1fAdjustActiveSandboxCountRequest\x12\x1c\n" +
@@ -2226,45 +2260,46 @@ var file_hypershell_v1_gateways_proto_depIdxs = []int32{
 	3,  // 1: hypershell.v1.GatewayPlacementIntent.capability_selector:type_name -> hypershell.v1.CapabilitySelectorPlacement
 	28, // 2: hypershell.v1.Gateway.metadata:type_name -> hypershell.v1.ObjectReference
 	1,  // 3: hypershell.v1.Gateway.provisioning_conditions:type_name -> hypershell.v1.ProvisioningCondition
-	2,  // 4: hypershell.v1.CreateGatewayRequest.placement:type_name -> hypershell.v1.GatewayPlacementIntent
-	4,  // 5: hypershell.v1.CreateGatewayResponse.gateway:type_name -> hypershell.v1.Gateway
-	4,  // 6: hypershell.v1.GetGatewayResponse.gateway:type_name -> hypershell.v1.Gateway
-	1,  // 7: hypershell.v1.UpdateGatewayRequest.provisioning_conditions:type_name -> hypershell.v1.ProvisioningCondition
-	4,  // 8: hypershell.v1.UpdateGatewayResponse.gateway:type_name -> hypershell.v1.Gateway
-	29, // 9: hypershell.v1.SandboxEvent.first_observed_at:type_name -> google.protobuf.Timestamp
-	29, // 10: hypershell.v1.SandboxEvent.last_observed_at:type_name -> google.protobuf.Timestamp
-	15, // 11: hypershell.v1.ReportSandboxEventsRequest.events:type_name -> hypershell.v1.SandboxEvent
-	4,  // 12: hypershell.v1.ListGatewaysResponse.items:type_name -> hypershell.v1.Gateway
-	30, // 13: hypershell.v1.ListGatewaysResponse.metadata:type_name -> hypershell.v1.ListMeta
-	31, // 14: hypershell.v1.WatchGatewaysResponse.type:type_name -> hypershell.v1.EventType
-	4,  // 15: hypershell.v1.WatchGatewaysResponse.gateway:type_name -> hypershell.v1.Gateway
-	7,  // 16: hypershell.v1.GatewayService.GetGateway:input_type -> hypershell.v1.GetGatewayRequest
-	5,  // 17: hypershell.v1.GatewayService.CreateGateway:input_type -> hypershell.v1.CreateGatewayRequest
-	9,  // 18: hypershell.v1.GatewayService.UpdateGateway:input_type -> hypershell.v1.UpdateGatewayRequest
-	20, // 19: hypershell.v1.GatewayService.DeleteGateway:input_type -> hypershell.v1.DeleteGatewayRequest
-	23, // 20: hypershell.v1.GatewayService.ListGateways:input_type -> hypershell.v1.ListGatewaysRequest
-	26, // 21: hypershell.v1.GatewayService.WatchGateways:input_type -> hypershell.v1.WatchGatewaysRequest
-	11, // 22: hypershell.v1.GatewayService.AdjustActiveSandboxCount:input_type -> hypershell.v1.AdjustActiveSandboxCountRequest
-	13, // 23: hypershell.v1.GatewayService.SetActiveSandboxCount:input_type -> hypershell.v1.SetActiveSandboxCountRequest
-	16, // 24: hypershell.v1.GatewayService.ReportSandboxEvents:input_type -> hypershell.v1.ReportSandboxEventsRequest
-	18, // 25: hypershell.v1.GatewayService.SetGatewayVersion:input_type -> hypershell.v1.SetGatewayVersionRequest
-	21, // 26: hypershell.v1.GatewayService.FinalizeGatewayDeletion:input_type -> hypershell.v1.FinalizeGatewayDeletionRequest
-	8,  // 27: hypershell.v1.GatewayService.GetGateway:output_type -> hypershell.v1.GetGatewayResponse
-	6,  // 28: hypershell.v1.GatewayService.CreateGateway:output_type -> hypershell.v1.CreateGatewayResponse
-	10, // 29: hypershell.v1.GatewayService.UpdateGateway:output_type -> hypershell.v1.UpdateGatewayResponse
-	25, // 30: hypershell.v1.GatewayService.DeleteGateway:output_type -> hypershell.v1.DeleteGatewayResponse
-	24, // 31: hypershell.v1.GatewayService.ListGateways:output_type -> hypershell.v1.ListGatewaysResponse
-	27, // 32: hypershell.v1.GatewayService.WatchGateways:output_type -> hypershell.v1.WatchGatewaysResponse
-	12, // 33: hypershell.v1.GatewayService.AdjustActiveSandboxCount:output_type -> hypershell.v1.AdjustActiveSandboxCountResponse
-	14, // 34: hypershell.v1.GatewayService.SetActiveSandboxCount:output_type -> hypershell.v1.SetActiveSandboxCountResponse
-	17, // 35: hypershell.v1.GatewayService.ReportSandboxEvents:output_type -> hypershell.v1.ReportSandboxEventsResponse
-	19, // 36: hypershell.v1.GatewayService.SetGatewayVersion:output_type -> hypershell.v1.SetGatewayVersionResponse
-	22, // 37: hypershell.v1.GatewayService.FinalizeGatewayDeletion:output_type -> hypershell.v1.FinalizeGatewayDeletionResponse
-	27, // [27:38] is the sub-list for method output_type
-	16, // [16:27] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	29, // 4: hypershell.v1.Gateway.redeploy_requested_at:type_name -> google.protobuf.Timestamp
+	2,  // 5: hypershell.v1.CreateGatewayRequest.placement:type_name -> hypershell.v1.GatewayPlacementIntent
+	4,  // 6: hypershell.v1.CreateGatewayResponse.gateway:type_name -> hypershell.v1.Gateway
+	4,  // 7: hypershell.v1.GetGatewayResponse.gateway:type_name -> hypershell.v1.Gateway
+	1,  // 8: hypershell.v1.UpdateGatewayRequest.provisioning_conditions:type_name -> hypershell.v1.ProvisioningCondition
+	4,  // 9: hypershell.v1.UpdateGatewayResponse.gateway:type_name -> hypershell.v1.Gateway
+	29, // 10: hypershell.v1.SandboxEvent.first_observed_at:type_name -> google.protobuf.Timestamp
+	29, // 11: hypershell.v1.SandboxEvent.last_observed_at:type_name -> google.protobuf.Timestamp
+	15, // 12: hypershell.v1.ReportSandboxEventsRequest.events:type_name -> hypershell.v1.SandboxEvent
+	4,  // 13: hypershell.v1.ListGatewaysResponse.items:type_name -> hypershell.v1.Gateway
+	30, // 14: hypershell.v1.ListGatewaysResponse.metadata:type_name -> hypershell.v1.ListMeta
+	31, // 15: hypershell.v1.WatchGatewaysResponse.type:type_name -> hypershell.v1.EventType
+	4,  // 16: hypershell.v1.WatchGatewaysResponse.gateway:type_name -> hypershell.v1.Gateway
+	7,  // 17: hypershell.v1.GatewayService.GetGateway:input_type -> hypershell.v1.GetGatewayRequest
+	5,  // 18: hypershell.v1.GatewayService.CreateGateway:input_type -> hypershell.v1.CreateGatewayRequest
+	9,  // 19: hypershell.v1.GatewayService.UpdateGateway:input_type -> hypershell.v1.UpdateGatewayRequest
+	20, // 20: hypershell.v1.GatewayService.DeleteGateway:input_type -> hypershell.v1.DeleteGatewayRequest
+	23, // 21: hypershell.v1.GatewayService.ListGateways:input_type -> hypershell.v1.ListGatewaysRequest
+	26, // 22: hypershell.v1.GatewayService.WatchGateways:input_type -> hypershell.v1.WatchGatewaysRequest
+	11, // 23: hypershell.v1.GatewayService.AdjustActiveSandboxCount:input_type -> hypershell.v1.AdjustActiveSandboxCountRequest
+	13, // 24: hypershell.v1.GatewayService.SetActiveSandboxCount:input_type -> hypershell.v1.SetActiveSandboxCountRequest
+	16, // 25: hypershell.v1.GatewayService.ReportSandboxEvents:input_type -> hypershell.v1.ReportSandboxEventsRequest
+	18, // 26: hypershell.v1.GatewayService.SetGatewayVersion:input_type -> hypershell.v1.SetGatewayVersionRequest
+	21, // 27: hypershell.v1.GatewayService.FinalizeGatewayDeletion:input_type -> hypershell.v1.FinalizeGatewayDeletionRequest
+	8,  // 28: hypershell.v1.GatewayService.GetGateway:output_type -> hypershell.v1.GetGatewayResponse
+	6,  // 29: hypershell.v1.GatewayService.CreateGateway:output_type -> hypershell.v1.CreateGatewayResponse
+	10, // 30: hypershell.v1.GatewayService.UpdateGateway:output_type -> hypershell.v1.UpdateGatewayResponse
+	25, // 31: hypershell.v1.GatewayService.DeleteGateway:output_type -> hypershell.v1.DeleteGatewayResponse
+	24, // 32: hypershell.v1.GatewayService.ListGateways:output_type -> hypershell.v1.ListGatewaysResponse
+	27, // 33: hypershell.v1.GatewayService.WatchGateways:output_type -> hypershell.v1.WatchGatewaysResponse
+	12, // 34: hypershell.v1.GatewayService.AdjustActiveSandboxCount:output_type -> hypershell.v1.AdjustActiveSandboxCountResponse
+	14, // 35: hypershell.v1.GatewayService.SetActiveSandboxCount:output_type -> hypershell.v1.SetActiveSandboxCountResponse
+	17, // 36: hypershell.v1.GatewayService.ReportSandboxEvents:output_type -> hypershell.v1.ReportSandboxEventsResponse
+	19, // 37: hypershell.v1.GatewayService.SetGatewayVersion:output_type -> hypershell.v1.SetGatewayVersionResponse
+	22, // 38: hypershell.v1.GatewayService.FinalizeGatewayDeletion:output_type -> hypershell.v1.FinalizeGatewayDeletionResponse
+	28, // [28:39] is the sub-list for method output_type
+	17, // [17:28] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_hypershell_v1_gateways_proto_init() }

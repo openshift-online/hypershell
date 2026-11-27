@@ -1905,6 +1905,224 @@
       "source": {}
     },
     {
+      "id": "collection:/api/hypershell/v1/gateways/{id}/redeploy:#/schemas/Gateway",
+      "kind": "collection",
+      "schemaRef": "#/schemas/Gateway",
+      "label": "Gateway",
+      "identityProperty": "id",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "active_sandbox_count",
+          "label": "ACTIVE SANDBOX COUNT",
+          "priority": 0,
+          "type": "integer",
+          "format": "int32"
+        },
+        {
+          "property": "can_delete",
+          "label": "CAN DELETE",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "can_edit",
+          "label": "CAN EDIT",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "cluster_id",
+          "label": "CLUSTER ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "console_address",
+          "label": "CONSOLE ADDRESS",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "created_by",
+          "label": "CREATED BY",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "credential_driver",
+          "label": "CREDENTIAL DRIVER",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "dedicated_route",
+          "label": "DEDICATED ROUTE",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "deployed_bundle",
+          "label": "DEPLOYED BUNDLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "external_dns",
+          "label": "EXTERNAL DNS",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "gateway_version",
+          "label": "GATEWAY VERSION",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "generation",
+          "label": "GENERATION",
+          "priority": 0,
+          "type": "integer",
+          "format": "int64"
+        },
+        {
+          "property": "href",
+          "label": "HREF",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "image",
+          "label": "IMAGE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "kind",
+          "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "namespace",
+          "label": "NAMESPACE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "observed_generation",
+          "label": "OBSERVED GENERATION",
+          "priority": 0,
+          "type": "integer",
+          "format": "int64"
+        },
+        {
+          "property": "oidc",
+          "label": "OIDC",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "phase",
+          "label": "PHASE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "redeploy_requested_at",
+          "label": "REDEPLOY REQUESTED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "route",
+          "label": "ROUTE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "route_address",
+          "label": "ROUTE ADDRESS",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "service_type",
+          "label": "SERVICE TYPE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "status",
+          "label": "STATUS",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "supervisor_image",
+          "label": "SUPERVISOR IMAGE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "tls_mode",
+          "label": "TLS MODE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "workspace_mode",
+          "label": "WORKSPACE MODE",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "scopeParameters": [
+        "id"
+      ],
+      "operationIds": [
+        "redeployGateway"
+      ],
+      "capabilities": [
+        "create"
+      ],
+      "source": {}
+    },
+    {
       "id": "collection:/api/hypershell/v1/gateways:#/schemas/Gateway",
       "kind": "collection",
       "schemaRef": "#/schemas/Gateway",
@@ -1975,6 +2193,12 @@
           "type": "boolean"
         },
         {
+          "property": "deployed_bundle",
+          "label": "DEPLOYED BUNDLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "external_dns",
           "label": "EXTERNAL DNS",
           "priority": 0,
@@ -2041,6 +2265,13 @@
           "label": "PHASE",
           "priority": 0,
           "type": "string"
+        },
+        {
+          "property": "redeploy_requested_at",
+          "label": "REDEPLOY REQUESTED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
         },
         {
           "property": "repository_id",
@@ -3849,6 +4080,12 @@
           "type": "boolean"
         },
         {
+          "property": "deployed_bundle",
+          "label": "DEPLOYED BUNDLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "external_dns",
           "label": "EXTERNAL DNS",
           "priority": 0,
@@ -3915,6 +4152,13 @@
           "label": "PHASE",
           "priority": 0,
           "type": "string"
+        },
+        {
+          "property": "redeploy_requested_at",
+          "label": "REDEPLOY REQUESTED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
         },
         {
           "property": "repository_id",
@@ -10107,6 +10351,61 @@
         "list"
       ],
       "summary": "Returns a list of workspace memberships",
+      "presentation": {}
+    },
+    {
+      "id": "redeployGateway",
+      "method": "POST",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/"
+        },
+        {
+          "parameter": "id"
+        },
+        {
+          "literal": "/redeploy"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "create"
+      ],
+      "summary": "Redeploy a gateway with the control plane's current chart and images",
       "presentation": {}
     },
     {

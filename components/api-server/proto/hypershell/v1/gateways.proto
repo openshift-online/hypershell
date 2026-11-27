@@ -68,6 +68,12 @@ message Gateway {
   // dedicated_route records that the gateway requested the dedicated route and
   // per-gateway wildcard certificate path at creation. Read-only after creation.
   optional bool dedicated_route = 32;
+  // deployed_bundle names the control-plane build that ran the last successful
+  // provisioning pass (data-model.spec.md PLAT-DATA-34). Control-plane-observed.
+  optional string deployed_bundle = 33;
+  // redeploy_requested_at is the time of the last administrator redeploy
+  // request (PLAT-DATA-33). Server-owned; unset when none was made.
+  google.protobuf.Timestamp redeploy_requested_at = 34;
 }
 
 message CreateGatewayRequest {
@@ -135,6 +141,9 @@ message UpdateGatewayRequest {
   // workspace_mode may only re-send the stored value; changing it is rejected
   // and omitting it keeps the stored value.
   optional string workspace_mode = 24;
+  // deployed_bundle is written by the control plane together with
+  // observed_generation after a successful pass (PLAT-DATA-34).
+  optional string deployed_bundle = 25;
 }
 
 message UpdateGatewayResponse {

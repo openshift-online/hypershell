@@ -698,6 +698,57 @@ paths:
       security:
       - Bearer: []
       summary: Update an gateway
+  /api/hypershell/v1/gateways/{id}/redeploy:
+    post:
+      description: |
+        Records an administrator redeploy request (data-model.spec.md PLAT-DATA-33).
+        The API server sets redeploy_requested_at and advances generation, so the
+        control plane applies the gateway again with its current chart and default
+        images. Allowed for platform:admin only (SEC-RBAC-36). No request body.
+      operationId: redeployGateway
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Gateway"
+          description: Redeploy recorded; the gateway is returned with its new generation
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Caller is not a platform administrator
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: "No gateway with specified id exists, or it was deleted"
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error recording the redeploy
+      security:
+      - Bearer: []
+      summary: Redeploy a gateway with the control plane's current chart and images
   /api/hypershell/v1/gateways/{gateway_id}/service_accounts:
     get:
       operationId: listGatewayServiceAccounts
@@ -5314,6 +5365,16 @@ components:
             description: Runtime version from the last successful gateway health response
             readOnly: true
             type: string
+          deployed_bundle:
+            description: "Control-plane build (release bundle name, or controller\
+              \ image) that ran the last successful provisioning pass (PLAT-DATA-34)"
+            readOnly: true
+            type: string
+          redeploy_requested_at:
+            description: Time of the last administrator redeploy request (PLAT-DATA-33)
+            format: date-time
+            readOnly: true
+            type: string
           oidc:
             description: JSON-encoded OIDC authentication configuration (auto-populated
               by Keycloak provisioning)
@@ -5406,6 +5467,7 @@ components:
         - namespace
         type: object
       example:
+        deployed_bundle: deployed_bundle
         server_dns_names:
         - server_dns_names
         - server_dns_names
@@ -5435,6 +5497,7 @@ components:
         kind: kind
         console_address: console_address
         workspace_mode: shared
+        redeploy_requested_at: 2000-01-23T04:56:07.000+00:00
         can_edit: true
         route_address: route_address
         oidc: oidc
@@ -5476,7 +5539,8 @@ components:
         id: id
         href: href
         items:
-        - server_dns_names:
+        - deployed_bundle: deployed_bundle
+          server_dns_names:
           - server_dns_names
           - server_dns_names
           created_at: 2000-01-23T04:56:07.000+00:00
@@ -5505,6 +5569,7 @@ components:
           kind: kind
           console_address: console_address
           workspace_mode: shared
+          redeploy_requested_at: 2000-01-23T04:56:07.000+00:00
           can_edit: true
           route_address: route_address
           oidc: oidc
@@ -5516,7 +5581,8 @@ components:
           name: name
           namespace: namespace
           status: status
-        - server_dns_names:
+        - deployed_bundle: deployed_bundle
+          server_dns_names:
           - server_dns_names
           - server_dns_names
           created_at: 2000-01-23T04:56:07.000+00:00
@@ -5545,6 +5611,7 @@ components:
           kind: kind
           console_address: console_address
           workspace_mode: shared
+          redeploy_requested_at: 2000-01-23T04:56:07.000+00:00
           can_edit: true
           route_address: route_address
           oidc: oidc

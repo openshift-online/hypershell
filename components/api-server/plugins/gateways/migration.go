@@ -629,3 +629,23 @@ func replaceRetiredPlacementJSON(raw []byte) ([]byte, bool, error) {
 	}
 	return out, true, nil
 }
+
+// migrationAddRedeployAndDeployedBundle adds the server-owned
+// redeploy_requested_at timestamp (PLAT-DATA-33) and the control-plane-observed
+// deployed_bundle (PLAT-DATA-34). Both are nullable; existing gateways start
+// with neither.
+func migrationAddRedeployAndDeployedBundle() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026112712000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec(`ALTER TABLE gateways
+  ADD COLUMN IF NOT EXISTS redeploy_requested_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS deployed_bundle TEXT`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`ALTER TABLE gateways
+  DROP COLUMN IF EXISTS redeploy_requested_at,
+  DROP COLUMN IF EXISTS deployed_bundle`).Error
+		},
+	}
+}

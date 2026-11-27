@@ -96,6 +96,52 @@ def validate_dockerfile_wiring(dockerfile_text: str) -> None:
         )
 
 
+# The packaged OpenShell chart version is stamped from the same build arg
+# (CICD-IMG-07, OSG-HELM-07): version = OPENSHELL_TAG without the leading "v"
+# plus "+hs" build metadata, appVersion = OPENSHELL_TAG.
+CHART_VERSION_SUFFIX = "+hs"
+_CHART_VERSION_WIRING_RE = re.compile(
+    r"helm package\s[^\n]*(?:\\\n[^\n]*)*?--version\s+\"\$\{"
+    + re.escape(BUILD_ARG)
+    + r"#v\}"
+    + re.escape(CHART_VERSION_SUFFIX)
+    + r"\"\s+--app-version\s+\"\$\{"
+    + re.escape(BUILD_ARG)
+    + r"\}\""
+)
+# SemVer 2.0.0, from semver.org.
+_SEMVER_RE = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)"
+    r"(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?"
+    r"(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
+)
+
+
+def chart_version_for_tag(tag: str) -> str:
+    """Return the packaged chart version the Dockerfile derives from tag.
+
+    Fails unless the result is a valid SemVer 2 version, which Helm requires.
+    """
+    version = (tag[1:] if tag.startswith("v") else tag) + CHART_VERSION_SUFFIX
+    if not _SEMVER_RE.fullmatch(version):
+        raise LabelError(
+            f"chart version {version!r} derived from {BUILD_ARG}={tag!r} "
+            "is not a valid SemVer 2 version"
+        )
+    return version
+
+
+def validate_chart_version_wiring(dockerfile_text: str) -> None:
+    """Fail unless helm package stamps version and appVersion from the arg."""
+    if not _CHART_VERSION_WIRING_RE.search(dockerfile_text):
+        raise LabelError(
+            "controller Dockerfile must package the chart with "
+            f'--version "${{{BUILD_ARG}#v}}{CHART_VERSION_SUFFIX}" '
+            f'--app-version "${{{BUILD_ARG}}}" (CICD-IMG-07)'
+        )
+
+
 def validate_arch_labels(
     arch: str, labels: dict[str, str], expected: str
 ) -> None:

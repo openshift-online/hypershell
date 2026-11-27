@@ -67,12 +67,16 @@ var gatewayFieldOwnership = map[string]gatewayFieldClass{
 	"gateway_version":         fieldObserved,
 	"observed_generation":     fieldObserved,
 	"active_sandbox_count":    fieldObserved,
+	"deployed_bundle":         fieldObserved,
 	"provisioning_conditions": fieldObserved,
 
 	// Server-owned (no caller writes).
 	"namespace":     fieldServerOwned,
 	"generation":    fieldServerOwned,
 	"repository_id": fieldServerOwned,
+	// redeploy_requested_at is set only by the admin redeploy action
+	// (PLAT-DATA-33); Replace always keeps the stored value.
+	"redeploy_requested_at": fieldServerOwned,
 }
 
 // createWorkloadFields are the platform-managed workload fields that are never set by
@@ -179,6 +183,8 @@ func gatewayUpdateViolation(current, incoming *Gateway) string {
 		return "console_address"
 	case !strEq(current.GatewayVersion, incoming.GatewayVersion):
 		return "gateway_version"
+	case !strEq(current.DeployedBundle, incoming.DeployedBundle):
+		return "deployed_bundle"
 	case !jsonEq(current.ProvisioningConditions, incoming.ProvisioningConditions):
 		return "provisioning_conditions"
 	case !intPtrEq(current.ActiveSandboxCount, incoming.ActiveSandboxCount):

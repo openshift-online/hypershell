@@ -18,6 +18,7 @@ import (
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list"
 	listgatewayaccess "github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/gatewayAccess"
 	listserviceaccounts "github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/serviceAccounts"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/redeploy"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/revoke"
 	secretsource "github.com/openshift-online/hypershell/components/cli/cmd/hsctl/secretSource"
 	tuicmd "github.com/openshift-online/hypershell/components/cli/cmd/hsctl/tui"
@@ -58,6 +59,7 @@ func init() {
 
 	// Hand-written commands.
 	root.AddCommand(apply.Cmd)
+	root.AddCommand(redeploy.Cmd)
 	root.AddCommand(revoke.Cmd)
 	root.AddCommand(secretsource.Cmd)
 	root.AddCommand(tuicmd.Cmd)

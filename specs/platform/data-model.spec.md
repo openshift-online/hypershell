@@ -539,6 +539,8 @@ selected per sandbox through OpenShell; they are not Gateway resource fields.
 | `dedicated_route` | boolean | Create-only user request for the per-gateway dedicated route and wildcard certificate, translated by the API server into the `route` opt-in at create; readOnly afterwards. Nullable: NULL means not requested (same as false). See "Requirement: Gateway Dedicated Route Request Field" (PLAT-DATA-26) |
 | `route_address` | text | Read-only external address populated by the control plane (e.g., `grpcs://hostname:443`) |
 | `gateway_version` | string | Read-only runtime version from the last successful gateway health response |
+| `deployed_bundle` | string | Read-only identity of the control-plane build that ran the last successful provisioning pass. See PLAT-DATA-34 |
+| `redeploy_requested_at` | timestamp | Read-only time of the last administrator redeploy request. Server-owned. See PLAT-DATA-33 |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. `type` is one of `vault`, `kubernetes-secrets`, `kek-db`. When omitted/null it resolves to `vault` (the default; convention-addressed per-cluster Vault, no sub-fields required). See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
 | `workspace_mode` | text | How the OpenShell Kubernetes driver maps workspaces to namespaces: `shared`, `managed`, or `operator`. Platform-managed with a create-only exception: the API server defaults it to `managed` at create, and the only caller-settable value is `operator`, accepted only from a `gateway:operator-workspace-creator` caller while the `HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE` API server feature flag is enabled (the per-gateway operator-managed workspace opt-in). Immutable after create; the service funnel enforces the vocabulary and immutability for every writer class. Required: every stored Gateway carries a value. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), "OSG-CORE-18 -- Gateway Workspace Mode", and [`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md), "OSG-OPWS-01" |
 | `dev_build` | boolean | Marks this Gateway as a dev/branch build (default: false). Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
@@ -574,10 +576,14 @@ desired spec changes: the platform-managed workload fields `image`,
 `cluster_id` (including the first time the API server assigns a `cluster_id` to a
 late-bound Gateway). Only the control plane may write the platform-managed fields
 (PLAT-DATA-23), so after creation only a control-plane write advances
-`generation`. It SHALL NOT increment `generation` for changes to the identity
+`generation`. The API server SHALL also increment `generation` when it
+records a new `redeploy_requested_at` for an administrator redeploy request
+(PLAT-DATA-33). That is the one desired-state change that no field of the
+workload spec carries. It SHALL NOT increment `generation` for changes to the identity
 fields `name` and `namespace`, which do not alter the deployed workload, or to
 control-plane-owned observed fields (`status`, `phase`, `route_address`,
-`observed_generation`). A user rename therefore does not trigger a reconcile.
+`observed_generation`). The same holds for `deployed_bundle` (PLAT-DATA-34):
+writing it never advances `generation`. A user rename therefore does not trigger a reconcile.
 
 On creation, a Gateway SHALL initialize with `generation = 1` and
 `observed_generation = 0`, so that a newly created Gateway is never spuriously
@@ -798,8 +804,12 @@ pattern.
 - **Control-plane-observed (control-plane-only):** `status`, `phase`, `route_address`,
   `console_address`, `provisioning_conditions`, `gateway_version`,
   `observed_generation`, `active_sandbox_count`.
+  `deployed_bundle` (PLAT-DATA-34) is also in this class.
 - **Server-owned (no caller writes):** `namespace`, `generation`, `repository_id`,
   and the timestamps.
+  `redeploy_requested_at` is also server-owned: only the redeploy action
+  (PLAT-DATA-33) sets it, and no create, update, or import write can set or
+  change it, the control plane's included.
 
 **Default-deny guarantee.** Because the policy is an allowlist, a newly added Gateway
 model field SHALL be control-plane-only automatically, with no per-field change. The
@@ -870,6 +880,120 @@ ownership to the remaining workload fields.
 - WHEN the field-census test runs
 - THEN it SHALL fail until the field's ownership is explicitly declared
 - AND until then a user or import write of the field SHALL be rejected
+
+### Requirement: PLAT-DATA-33 -- Administrator Gateway Redeploy
+
+A platform administrator SHALL be able to ask the control plane to redeploy one
+existing Gateway. A redeploy applies the Gateway again with the control plane's
+current chart and current default images. It is how a new OpenShell release
+reaches a Gateway that is already converged. Gateways are never upgraded
+automatically: a redeploy happens only when an administrator asks for it (see
+[`openshell-gateway-helm-adoption.spec.md`](./openshell-gateway-helm-adoption.spec.md),
+OSG-HELM-01).
+
+The action is `POST /api/hypershell/v1/gateways/{id}/redeploy`, with no request
+body. Only a `platform:admin` caller may call it (SEC-RBAC-36).
+
+When the API server accepts a redeploy request it SHALL:
+
+1. Set `redeploy_requested_at` to the current server time.
+2. Treat that change as a desired-state change, so `generation` advances by one
+   and the provisioning conditions restart (PLAT-DATA-06, PLAT-DATA-07).
+3. Publish the usual Gateway update event, so the control plane receives the
+   new generation through its watch stream.
+4. Return `200 OK` with the updated Gateway.
+
+The control plane needs no separate signal. The Gateway is no longer converged
+(`observed_generation < generation`), so the next reconcile pass runs
+`helm upgrade --reset-values` as for any other desired-state change.
+
+`redeploy_requested_at` is server-owned (PLAT-DATA-23). A create, `PATCH`, gRPC
+`UpdateGateway`, or `.hypershell` import that sets it SHALL be rejected as an
+unknown or forbidden field. A control-plane write that resends a stale value
+SHALL NOT change the stored value.
+
+Repeated requests coalesce. A request for a Gateway that is not converged yet
+is accepted: `generation` advances again, and the next pass applies the newest
+generation once. A request for a deleted Gateway SHALL be rejected with
+`404 Not Found`, because a deleted Gateway is never deployed again.
+
+Open question: whether a `gateway:owner` should also be allowed to redeploy
+their own Gateway. The first version allows `platform:admin` only.
+
+#### Scenario: PLAT-DATA-33.01 -- Administrator redeploys a converged gateway
+- GIVEN a converged Gateway with `generation` N
+- WHEN a `platform:admin` caller sends `POST /gateways/{id}/redeploy`
+- THEN the API server SHALL return `200 OK` with the Gateway
+- AND `generation` SHALL be N+1 and `observed_generation` SHALL remain N
+- AND `redeploy_requested_at` SHALL be set to the request time
+
+#### Scenario: PLAT-DATA-33.02 -- Redeploy of an unconverged gateway coalesces
+- GIVEN a Gateway with `generation` N+1 and `observed_generation` N
+- WHEN a `platform:admin` caller requests a redeploy
+- THEN the API server SHALL accept it and advance `generation` to N+2
+- AND the control plane SHALL apply generation N+2 once
+
+#### Scenario: PLAT-DATA-33.03 -- Redeploy of a deleted gateway is rejected
+- GIVEN a Gateway that has been deleted
+- WHEN a `platform:admin` caller requests a redeploy
+- THEN the API server SHALL return `404 Not Found`
+- AND the deleted record SHALL be unchanged
+
+#### Scenario: PLAT-DATA-33.04 -- No write path can set redeploy_requested_at
+- GIVEN an existing Gateway
+- WHEN a user `PATCH` carries `redeploy_requested_at`
+- THEN the API server SHALL reject it with `400 Bad Request` naming the field
+- WHEN a control-plane `UpdateGateway` writes the Gateway
+- THEN the stored `redeploy_requested_at` SHALL be unchanged
+- AND `generation` SHALL NOT advance because of it
+
+### Requirement: PLAT-DATA-34 -- Deployed Bundle Field
+
+A Gateway SHALL carry a read-only `deployed_bundle` string. It names the
+control-plane build that ran the Gateway's last successful provisioning pass.
+Readers use it to tell which release a Gateway is running.
+
+The control plane SHALL write `deployed_bundle` through the same
+`UpdateGateway` back-channel and in the same write that records
+`observed_generation` after a successful pass (PLAT-DATA-06.03). It SHALL write
+it after every successful pass, whatever triggered the pass: a spec change, a
+redeploy request, a fleet policy-defaults change, or a retry.
+
+The value SHALL be:
+
+1. The value of the controller setting `HYPERSHELL_BUNDLE`, when that setting is
+   set and not empty. A release deployment sets it to the release bundle name.
+2. Otherwise, the controller's own image reference as read from its Pod status,
+   pinned by digest when one is reported (the same value the policy interceptor
+   sidecar uses, PLAT-PGP-09).
+
+When neither is known, the control plane SHALL leave `deployed_bundle`
+unchanged.
+
+A failed pass SHALL NOT change `deployed_bundle`. Writing `deployed_bundle`
+SHALL NOT advance `generation`. It is a control-plane-observed field
+(PLAT-DATA-23): a user or import write that changes it is rejected.
+
+| Setting | Required | Default | Meaning |
+|---|---|---|---|
+| `HYPERSHELL_BUNDLE` | No | Unset: use the controller image reference | Release bundle identity written to `deployed_bundle` |
+
+#### Scenario: PLAT-DATA-34.01 -- Successful pass records the configured bundle
+- GIVEN a controller with `HYPERSHELL_BUNDLE` set to B
+- WHEN it successfully applies a Gateway
+- THEN the Gateway's `deployed_bundle` SHALL be B
+- AND `generation` SHALL NOT advance because of that write
+
+#### Scenario: PLAT-DATA-34.02 -- Without a bundle the controller image is recorded
+- GIVEN a controller with no `HYPERSHELL_BUNDLE`
+- WHEN it successfully applies a Gateway
+- THEN the Gateway's `deployed_bundle` SHALL be the controller's own image
+  reference, pinned by digest when the Pod status reports one
+
+#### Scenario: PLAT-DATA-34.03 -- A failed pass keeps the previous value
+- GIVEN a Gateway whose `deployed_bundle` is B1
+- WHEN a provisioning pass by a controller with bundle B2 fails
+- THEN `deployed_bundle` SHALL remain B1
 
 ### Requirement: PLAT-DATA-26 -- Gateway Dedicated Route Request Field
 
@@ -2084,6 +2208,7 @@ gateway only.
 |--------|------|-----------|
 | GET/POST | `/gateways` | List/Create |
 | GET/PATCH/DELETE | `/gateways/{id}` | Get/Update/Delete |
+| POST | `/gateways/{id}/redeploy` | Redeploy a gateway with the control plane's current chart and images (`platform:admin` only; PLAT-DATA-33) |
 | GET | `/gateways/{gateway_id}/sandbox_events` | Read recent sandbox Events for one gateway (REST only; see `gateway-sandbox-events.spec.md`) |
 | GET/POST | `/gateways/{gateway_id}/service_accounts` | List/Create gateway OpenShellGatewayServiceAccounts |
 | GET/DELETE | `/gateways/{gateway_id}/service_accounts/{service_account_id}` | Get/Delete an OpenShellGatewayServiceAccount |
@@ -2134,6 +2259,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1 except where a feature explicitly d
 | `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> (--cluster-id <c> \| [--placement-selector <label>]... [--placement-exclude-selector <label>]...) [--dedicated-route] [--dry-run]` (name + placement + the create-only `dedicated_route` request, per PLAT-DATA-23 / PLAT-DATA-26; `--dedicated-route` requires the `gateway:dedicated-route-creator` role; the placement flags submit the late-bound shape, and `--cluster-id` submits the pinned shape but is accepted-yet-hidden from `--help` as a nudge toward the placement surface, see [`hsctl-placement.spec.md`](hsctl-placement.spec.md) CLI-PLC-05) | ✅ implemented |
 | `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> --name <n>` (rename only, per PLAT-DATA-23) | 🔲 planned |
 | `DELETE /api/hypershell/v1/gateways/{id}` | `hsctl delete gateway <id>` | ✅ implemented |
+| `POST /api/hypershell/v1/gateways/{id}/redeploy` | `hsctl redeploy gateway <id>` (`platform:admin` only, PLAT-DATA-33) | ✅ implemented |
 | `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` | -- | planned (REST only; see [`gateway-sandbox-events.spec.md`](gateway-sandbox-events.spec.md)) |
 
 #### OpenShellGatewayServiceAccounts

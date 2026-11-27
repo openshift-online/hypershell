@@ -122,12 +122,16 @@ type GatewayReconciler struct {
 	// policyKubeOverride, when set by a test, replaces clientset for the
 	// policy-defaults drift read (clientset is a concrete type).
 	policyKubeOverride kubernetes.Interface
-	mu                 sync.Mutex
-	active             map[string]struct{}
-	dynamicClient      dynamic.Interface
-	clientset          *kubernetes.Clientset
-	grpcConn           *grpc.ClientConn
-	helmClient         *helm.ShellClient
+	// deployedBundle is written to deployed_bundle with observed_generation after
+	// every successful provisioning pass (PLAT-DATA-34); empty leaves the field
+	// unchanged.
+	deployedBundle string
+	mu             sync.Mutex
+	active         map[string]struct{}
+	dynamicClient  dynamic.Interface
+	clientset      *kubernetes.Clientset
+	grpcConn       *grpc.ClientConn
+	helmClient     *helm.ShellClient
 	// isOpenShift is derived from the configured host platform
 	// (HYPERSHELL_CLUSTER_PLATFORM, CTRL-CORE-16), NOT from API discovery, so it
 	// stays stable through discovery failures.
@@ -1453,11 +1457,7 @@ func consoleRouteConfig(gw *pb.Gateway) gateway.RouteConfig {
 // only writer of observed_generation, via the same gRPC back-channel used for
 // phase/status/route_address.
 func (r *GatewayReconciler) updateObservedGeneration(ctx context.Context, gatewayID string, generation int64) {
-	client := pb.NewGatewayServiceClient(r.grpcConn)
-	_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
-		Id:                 gatewayID,
-		ObservedGeneration: &generation,
-	})
+	_, err := r.gatewayServiceClient().UpdateGateway(ctx, convergedUpdateRequest(gatewayID, generation, r.deployedBundle))
 	if err != nil {
 		// Intentional soft failure: the gateway stays unconverged (observed_generation
 		// unchanged) and re-applies on the next watch event, so no work is lost.

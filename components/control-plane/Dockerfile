@@ -87,9 +87,19 @@ RUN cover_flags=""; \
 # The chart source is committed to the repository (no network access needed),
 # which is required for Konflux hermetic builds. When bumping OPENSHELL_VERSION,
 # update charts/openshell/ by extracting the chart from the new upstream tag.
+#
+# The committed Chart.yaml keeps upstream's 0.0.0 placeholders (it is replaced
+# wholesale on every bump), so the build stamps the real version from
+# OPENSHELL_TAG (OSG-HELM-07, CICD-IMG-07): version is the tag without its
+# leading "v" plus "+hs" SemVer build metadata marking the HyperShell-local
+# chart patches (v0.1.10-rhaiv.0 -> 0.1.10-rhaiv.0+hs); appVersion is the tag.
+# The control plane sets every rendered image explicitly, so appVersion never
+# becomes an image tag (OSG-HELM-07.02).
 COPY charts/openshell /tmp/chart-source/openshell
 RUN mkdir -p /workspace/charts && \
-    helm package /tmp/chart-source/openshell --destination /workspace/charts/ && \
+    helm package /tmp/chart-source/openshell \
+      --version "${OPENSHELL_TAG#v}+hs" --app-version "${OPENSHELL_TAG}" \
+      --destination /workspace/charts/ && \
     mv /workspace/charts/*.tgz /workspace/charts/openshell.tgz
 
 FROM registry.access.redhat.com/hi/static:1787099997@sha256:3d43712a61ce01c7049e983e7f4c4609aaad7582c7bbd930b57372f82c446f98 AS static-amd64

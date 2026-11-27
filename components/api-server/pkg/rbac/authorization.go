@@ -536,6 +536,12 @@ func extractResourceInfoFromRoute(r *http.Request) (resource string, resourceID 
 	if strings.HasSuffix(pathTemplate, "/gateways/placement-availability") {
 		return "gateway_placement_availability", ""
 	}
+	if strings.HasSuffix(pathTemplate, "/gateways/{id}/redeploy") {
+		// The administrator redeploy action (PLAT-DATA-33) is its own resource so
+		// it gets the platform:admin-only gate (SEC-RBAC-36), not the gateway
+		// owner/admin write rules.
+		return "gateway_redeploy", mux.Vars(r)["id"]
+	}
 
 	parts := strings.Split(pathTemplate, "/")
 	for i := len(parts) - 1; i >= 0; i-- {
@@ -665,6 +671,12 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 
 	if resource == "gateway_placement_availability" {
 		return method == http.MethodPost && hasGatewayCreator(bindings)
+	}
+
+	if resource == "gateway_redeploy" {
+		// Redeploy is platform:admin only; gateway owners, admins and viewers
+		// are denied (SEC-RBAC-36).
+		return method == http.MethodPost && hasPlatformAdmin(bindings)
 	}
 
 	// Extension kinds (/api/hypershell/ext/...): the platform-wide authoring

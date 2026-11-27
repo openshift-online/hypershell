@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"reflect"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -47,6 +48,11 @@ type GatewayService interface {
 	// SetGatewayVersion sets the last runtime version that the health reconciler
 	// observed. It does not change any other gateway field.
 	SetGatewayVersion(ctx context.Context, id, version string) (string, *errors.ServiceError)
+
+	// Redeploy records an administrator redeploy request (PLAT-DATA-33): it sets
+	// redeploy_requested_at to now, which advances generation so the control
+	// plane applies the gateway again. A deleted gateway is not found.
+	Redeploy(ctx context.Context, id string) (*Gateway, *errors.ServiceError)
 
 	FindByIDs(ctx context.Context, ids []string) (GatewayList, *errors.ServiceError)
 
@@ -217,7 +223,35 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 		return nil, errors.DatabaseAdvisoryLock(err)
 	}
 	defer s.lockFactory.Unlock(ctx, lockOwnerID)
+	return s.replaceLocked(ctx, gateway, nil)
+}
 
+// Redeploy records an administrator redeploy request (PLAT-DATA-33). It writes
+// the stored gateway back unchanged except for a new redeploy_requested_at,
+// through the same funnel as Replace, so generation advances, provisioning
+// conditions restart, the convergence window opens, and the update event is
+// published. Authorization (platform:admin only, SEC-RBAC-36) is enforced at
+// the request boundary.
+func (s *sqlGatewayService) Redeploy(ctx context.Context, id string) (*Gateway, *errors.ServiceError) {
+	lockOwnerID, err := s.lockFactory.NewAdvisoryLock(ctx, id, gatewaysLockType)
+	if err != nil {
+		return nil, errors.DatabaseAdvisoryLock(err)
+	}
+	defer s.lockFactory.Unlock(ctx, lockOwnerID)
+	current, getErr := s.gatewayDao.Get(ctx, id)
+	if getErr != nil {
+		return nil, services.HandleGetError("Gateway", "id", id, getErr)
+	}
+	next := *current
+	requestedAt := time.Now().UTC()
+	return s.replaceLocked(ctx, &next, &requestedAt)
+}
+
+// replaceLocked is the shared update funnel. The caller holds the gateway's
+// advisory lock. redeployRequestedAt is non-nil only for an administrator
+// redeploy; every other write keeps the stored redeploy_requested_at, so no
+// create, update, or import body can set or regress it (PLAT-DATA-33.04).
+func (s *sqlGatewayService) replaceLocked(ctx context.Context, gateway *Gateway, redeployRequestedAt *time.Time) (*Gateway, *errors.ServiceError) {
 	gateway.CaptureTraceContext(ctx)
 
 	// generation is API-server-owned: increment it iff a desired-spec field
@@ -227,6 +261,11 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	current, getErr := s.gatewayDao.Get(ctx, gateway.ID)
 	if getErr != nil {
 		return nil, services.HandleGetError("Gateway", "id", gateway.ID, getErr)
+	}
+	if redeployRequestedAt != nil {
+		gateway.RedeployRequestedAt = redeployRequestedAt
+	} else {
+		gateway.RedeployRequestedAt = current.RedeployRequestedAt
 	}
 
 	// route.certificate is a provision-time-only opt-in (docs/investigations/
@@ -304,7 +343,7 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 		}
 	}
 
-	gateway, err = s.gatewayDao.Replace(ctx, gateway)
+	gateway, err := s.gatewayDao.Replace(ctx, gateway)
 	if err != nil {
 		return nil, services.HandleUpdateError("Gateway", err)
 	}
@@ -364,7 +403,9 @@ func (s *sqlGatewayService) SetGatewayVersion(ctx context.Context, id, version s
 }
 
 // desiredStateChanged reports whether any workload-altering (desired-spec) field
-// differs between the persisted Gateway and the incoming update. Observed fields
+// differs between the persisted Gateway and the incoming update. A new
+// redeploy_requested_at (an administrator redeploy, PLAT-DATA-33) also counts;
+// deployed_bundle (PLAT-DATA-34) never does. Observed fields
 // (status, phase, route_address, generation, observed_generation) and identity
 // fields (name, namespace) are excluded: they do not alter the live
 // workload and must not advance generation. See data-model.spec.md.
@@ -380,7 +421,16 @@ func desiredStateChanged(current, next *Gateway) bool {
 		!jsonEq(current.Oidc, next.Oidc) ||
 		!jsonEq(current.Route, next.Route) ||
 		!strEq(current.CredentialDriver, next.CredentialDriver) ||
-		!strEq(current.WorkspaceMode, next.WorkspaceMode)
+		!strEq(current.WorkspaceMode, next.WorkspaceMode) ||
+		!timeEq(current.RedeployRequestedAt, next.RedeployRequestedAt)
+}
+
+// timeEq compares two optional timestamps, treating nil as absent.
+func timeEq(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
 }
 
 // jsonEq compares two optional JSON documents semantically. Oidc and Route are

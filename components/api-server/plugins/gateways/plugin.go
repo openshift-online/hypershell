@@ -487,6 +487,8 @@ func init() {
 		gatewaysRouter.HandleFunc("", gatewayHandler.Create).Methods(http.MethodPost)
 		gatewaysRouter.HandleFunc("/{id}", gatewayHandler.Patch).Methods(http.MethodPatch)
 		gatewaysRouter.HandleFunc("/{id}", gatewayHandler.Delete).Methods(http.MethodDelete)
+		// Administrator redeploy (PLAT-DATA-33); platform:admin only (SEC-RBAC-36).
+		gatewaysRouter.HandleFunc("/{id}/redeploy", gatewayHandler.Redeploy).Methods(http.MethodPost)
 
 		metricsRouter := routes.Resource(apiRouter, "metrics").PathPrefix("/metrics").Subrouter()
 		metricsRouter.HandleFunc("/gateways", gatewayHandler.MetricsGateways).Methods(http.MethodGet)
@@ -576,6 +578,7 @@ func init() {
 	db.RegisterMigration(migrationBackfillGatewayWorkspaceModeShared())
 	db.RegisterMigration(migrationAddConvergenceTracking())
 	db.RegisterMigration(migrationReplaceRetiredPlacementLabels())
+	db.RegisterMigration(migrationAddRedeployAndDeployedBundle())
 }
 
 // gatewayGRPCResources declares every GatewayService method for authorization.
