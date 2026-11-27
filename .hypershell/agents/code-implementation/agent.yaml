@@ -10,7 +10,12 @@ metadata:
   name: code-implementation
   description: SDLC automation agent (code-implementation)
 spec:
-  sandbox_template_id: agent-runtime-slim
+  # The code-implementation agent runs in the full agent-runtime sandbox so it can
+  # generate code, build, and run tests in-sandbox (agent-runtime-images.spec.md,
+  # ARI-05). Every other agent stays on agent-runtime-slim. The coordinator that
+  # scans the repository and fans out sandboxes needs only gh/fullsend, so it keeps
+  # the lighter slim image.
+  sandbox_template_id: agent-runtime
   gateway_id: agents-gateway
   repository_id: openshift-online/hypershell
   cron: "*/5 * * * *"

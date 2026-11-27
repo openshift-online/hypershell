@@ -64,14 +64,24 @@ Else:
   authoritative CI-equivalent gate locally (the commands in the reconcile skill
   Phase 6 step 3, or `make lint`) and require it green to avoid format/gofmt/SDK
   drift CI ping-pong.
-  - For a failing E2E check (`Tests / E2E / Kind` or `Tests / E2E / OpenShift`),
-    reproduce only the failing phase or step rather than the whole suite: the Go
-    E2E suite runs each phase/step in isolation. If `$REJECTION_RATIONALE` names a
-    step (for example `P2.5`), run `make e2e E2E_RUN='P2\.5'` (a whole phase with
-    `E2E_RUN=Phase-P2`; prefix `E2E_INFRA_DRIVER=openshift` to match the OpenShift
-    check). The suite provisions the primary gateway on demand in setup, and
-    `E2E_PRIMARY_GATEWAY_ID=<id>` adopts an already-running gateway to cut
-    turnaround. See `tests/e2e/README.md`.
+  - **Container-free generation and tests (agent-runtime sandbox, ARI-06).** The
+    sandbox has no container engine, so use the container-free paths instead of the
+    testcontainer/`Dockerfile.openapi` defaults: run OpenAPI generation with
+    `cd components/api-server && make generate OPENAPI_GENERATOR=jar generate-sdk`
+    (byte-identical to the container path, asserted in CI), and run the api-server
+    integration suite with `make test-integration-external-db` (a throwaway
+    PostgreSQL via `initdb`/`pg_ctl`, `DB_FACTORY_MODE=external`). Run the
+    `ui-build-gate` capture with the image's baked headless Chromium. Report a
+    missing tool as a blocker only after the documented container-free path also
+    fails.
+  - **E2E is deferred to CI (ARI-07, `e2e-testing.spec.md` E2E-CORE-51).** The
+    sandbox cannot run Kind, OpenShift, or any local e2e target, and the agent MUST
+    NOT run `make e2e` or report e2e as passing from a run it did not perform.
+    Instead, push the branch and treat the pull request's CI e2e jobs
+    (`Tests / E2E / Kind`, and `Tests / E2E / OpenShift` where it applies) as the
+    e2e gate: wait for those jobs on the pushed head commit, read their results, and
+    treat a failure as implementation work to fix and re-push. Consider e2e
+    satisfied only when those CI jobs report success for the pushed head commit.
 - Address any merge conflicts found in Step 2.
 - Commit (if not already) and push code to `$LINKED_PULL_REQUEST` as **one commit
   per component** (api-server, CLI, SDK (Go/TS), proto/gRPC, control-plane, tests,

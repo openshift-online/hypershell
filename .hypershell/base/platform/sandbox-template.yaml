@@ -27,3 +27,52 @@ spec:
       ],
       "process": {"user": "agent", "group": "root"}
     }
+---
+# Full agent-runtime sandbox for the code-implementation agent
+# (agent-runtime-images.spec.md, ARI-05). It uses the full
+# `hypershell-agent-runtime` image (Go, Node.js/pnpm, buf, headless JRE +
+# openapi-generator-cli JAR, PostgreSQL server binaries, headless Chromium) so a
+# feature that adds or changes an API kind, a web-console page, or
+# integration-tested behavior can be generated, built, and tested in-sandbox.
+# It keeps the inference and GitHub egress groups and adds three narrow groups,
+# each scoped to the single set of binaries that needs it: Go modules for `go`,
+# npm packages for `node`/`pnpm`, and buf remote plugins for `buf`. No general
+# internet egress is permitted.
+#
+# Resource sizing (ARI-05: start at 4 CPU / 8Gi, tune from metrics): the
+# SandboxTemplate/SandboxPolicy schema is owned by data-model.spec.md
+# (PLAT-DATA-20) and today models only filesystem/network/process -- it has no
+# field for CPU/memory requests and limits, and the downstream sandbox proto does
+# not model them either. Rather than smuggle an unmodeled key into the policy blob
+# (where a strict consumer could drop or reject it), the sizing requirement is
+# recorded here until the schema gains a home for it: requests and limits of 4 CPU
+# and 8Gi. Wiring it is a PLAT-DATA-20 schema change tracked separately.
+#
+# Module/package cache locations are set by the image environment (GOMODCACHE,
+# GOCACHE, and the pnpm store under /home/agent; see Containerfile.agent-runtime).
+# The image digest is pinned by hand and updated by the same release-bundle flow
+# that pins the agent-runtime-slim template above.
+apiVersion: hypershell.redhat.io/v1
+kind: SandboxTemplate
+metadata:
+  name: agent-runtime
+  description: Full agent sandbox for code-implementation with the container-free generation and test toolchain
+spec:
+  image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-agent-runtime-main@sha256:0d7f71e4c078f5e637e6ea03e5f53b317dc65d6c9765c7810f27dd111cca6b64
+  name_prefix: hypershell-agent-
+  policy: |
+    {
+      "filesystem": {
+        "read_only": ["/usr", "/etc"],
+        "read_write": ["/sandbox", "/tmp", "/home/agent"],
+        "landlock": "best_effort"
+      },
+      "network": [
+        {"name": "claude_code", "hosts": ["inference.local:443"], "binaries": ["claude"]},
+        {"name": "github_rest_api", "hosts": ["api.github.com:443", "github.com:443"], "binaries": ["gh", "git"]},
+        {"name": "go_modules", "hosts": ["proxy.golang.org:443", "sum.golang.org:443"], "binaries": ["go"]},
+        {"name": "npm_packages", "hosts": ["registry.npmjs.org:443"], "binaries": ["node", "pnpm"]},
+        {"name": "buf_remote_plugins", "hosts": ["buf.build:443", "api.buf.build:443"], "binaries": ["buf"]}
+      ],
+      "process": {"user": "agent", "group": "root"}
+    }

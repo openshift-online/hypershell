@@ -1468,6 +1468,42 @@ On `pull_request` and push to `main` (not on `merge_group` or Mergify queue PRs,
 - WHEN the total job runtime exceeds 20 minutes
 - THEN the job SHALL be terminated with a timeout failure
 
+### Requirement: E2E-CORE-51 -- Sandboxed-Agent E2E Gate
+
+An autonomous SDLC agent that runs in an egress-restricted sandbox without a
+container runtime SHALL NOT run Kind, OpenShift, or any local e2e target, and SHALL
+NOT report e2e as passing from a run it did not perform. For such an agent, the
+pull request's CI e2e jobs (Tests / E2E / Kind, and Tests / E2E / OpenShift where
+it applies) are the e2e evidence. The agent SHALL push its branch, wait for those
+jobs on the pushed head commit, read their results, and treat a failure as
+implementation work to fix and re-push. The agent SHALL consider e2e satisfied only
+when those CI jobs report success for the pushed head commit. This gate does not
+change the merge contract: E2E remains outside the required `Tests CI Gate`
+(see the Purpose and `mergify-parallel-merge-queue.spec.md`, CICD-MRG-05); it is
+the e2e evidence the agent relies on because it cannot produce that evidence
+locally.
+
+#### Scenario: E2E-CORE-51.01 -- Agent defers e2e to CI
+
+- GIVEN a `code-implementation` agent running in the `agent-runtime` sandbox without a container runtime
+- WHEN it finishes a change that touches e2e-relevant components
+- THEN it SHALL push the branch and rely on the pull request's CI e2e jobs for e2e evidence
+- AND it SHALL NOT invoke Kind, OpenShift, or a local e2e target
+
+#### Scenario: E2E-CORE-51.02 -- Agent never fabricates a local e2e pass
+
+- GIVEN the agent cannot run e2e in its sandbox
+- WHEN it writes its result
+- THEN it SHALL NOT report e2e as passing from a run it did not perform
+- AND it SHALL mark e2e satisfied only after the CI e2e jobs report success for the pushed head commit
+
+#### Scenario: E2E-CORE-51.03 -- CI e2e failure is treated as work
+
+- GIVEN the pull request's CI e2e jobs fail on the pushed head commit
+- WHEN the agent reads those results
+- THEN it SHALL treat the failure as implementation work, fix it, and re-push
+- AND it SHALL NOT report the change as e2e-complete while those jobs fail
+
 ### Requirement: E2E-CORE-26 -- Konflux Image Consumption
 
 The CI workflow SHALL NOT build component images itself. Images are built by Konflux (the existing build pipeline). The e2e workflow SHALL gate on required Konflux builds completing, then pull those built images by digest into the Kind cluster. On `pull_request` and `push`, unchanged components SHALL use baseline images from the container registry. E2E is suppressed on `merge_group` events and Mergify temporary queue pull requests (CICD-MRG-06), so `on-merge-queue-<merge_sha>` image consumption applies only if E2E is re-enabled for those events in a future change. This is expected to cover HYPERSHELL-16.

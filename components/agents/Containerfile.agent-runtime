@@ -88,10 +88,12 @@ ENV PATH=/home/agent/.local/bin:/home/agent/go/bin:/home/agent/.cargo/bin:/usr/l
     GOROOT=/usr/local/go \
     GOPATH=/home/agent/go \
     GOCACHE=/home/agent/.cache/go-build \
+    GOMODCACHE=/home/agent/go/pkg/mod \
     GOTOOLCHAIN=local \
     CARGO_HOME=/home/agent/.cargo \
     npm_config_cache=/home/agent/.cache/npm \
-    npm_config_prefix=/home/agent/.local
+    npm_config_prefix=/home/agent/.local \
+    npm_config_store_dir=/home/agent/.cache/pnpm-store
 WORKDIR /sandbox
 USER 10001:0
 ENTRYPOINT []
