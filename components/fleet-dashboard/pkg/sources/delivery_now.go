@@ -92,6 +92,9 @@ type DeliveryGitOpsHead struct {
 	PublishedAt string `json:"publishedAt,omitempty"`
 	LockedAt    string `json:"lockedAt,omitempty"`
 	PR          int    `json:"pr,omitempty"`
+	// SameAs is the digest of the bundle published just before this one when
+	// this one is a re-cut with the same component revisions (FLT-DLV-23.06).
+	SameAs string `json:"sameAs,omitempty"`
 }
 
 // DeliveryNowCheck is one running build or policy check.
@@ -538,6 +541,9 @@ func buildNow(in deliveryInput, pl placement, groups []envGroup, est map[string]
 		if bi, ok := pl.digests[lc.Digest]; ok {
 			b := in.bundles[bi]
 			h := &DeliveryGitOpsHead{Digest: b.Digest, Tag: b.Tag, Version: b.Version, PublishedAt: fmtTime(bundlePublished(in, b))}
+			if bi > 0 && sameComponents(in.bundles[bi-1].Components, b.Components) {
+				h.SameAs = in.bundles[bi-1].Digest
+			}
 			if first, ok := lockCommitOf(in, lc.Digest); ok {
 				h.LockedAt = first.Date
 				if n, _, ok := extractPR(first.Message); ok {

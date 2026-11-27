@@ -1546,6 +1546,16 @@ function ShippedMatrix({
                           })}
                         </Label>
                       )}
+                      {!row.unreleased && row.sameAs ? (
+                        <div>
+                          <Inline>
+                            <BundleIdenticon seed={row.sameAs} />
+                            {intl.formatMessage(messages.sdlcBundleSameAs, {
+                              bundle: identiName(row.sameAs),
+                            })}
+                          </Inline>
+                        </div>
+                      ) : null}
                     </Td>
                   </Tr>
                   <Tr isExpanded={isExpanded}>

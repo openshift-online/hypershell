@@ -653,6 +653,7 @@ interface WireSdlcBundleRow {
   // servers, which the UI renders as "no deployment section".
   readonly gitopsPrs?: readonly WireSdlcPullRequest[] | null;
   readonly gitopsStatus?: string;
+  readonly sameAs?: string;
 }
 
 interface WireSdlcMatrix {
@@ -750,6 +751,7 @@ function mapSdlcBundleRow(r: WireSdlcBundleRow): AgentSdlcBundleRow {
     otherPRs: (r.otherPRs ?? []).map(mapSdlcPullRequest),
     gitopsPrs: (r.gitopsPrs ?? []).map(mapSdlcPullRequest),
     gitopsStatus: mapSdlcGitOpsStatus(r.gitopsStatus),
+    sameAs: nullableString(r.sameAs),
   };
 }
 

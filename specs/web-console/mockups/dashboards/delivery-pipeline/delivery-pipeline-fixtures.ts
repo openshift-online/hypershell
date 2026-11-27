@@ -14,6 +14,7 @@ export type DeliveryState =
   | "bundle-train"
   | "waiting-on-renovate"
   | "outside-bundle"
+  | "recut-bundle"
   | "source-unavailable"
   | "restart-loading"
   | "refreshing"
@@ -159,6 +160,8 @@ export type NextItem =
 export type PipelineNow = {
   readonly appHead: string;
   readonly gitopsHead: string;
+  /** The GitOps head is a re-cut of this bundle (FLT-DLV-23.06). */
+  readonly gitopsSameAs?: string;
   /** Empty reads "Nothing in flight". */
   readonly inFlight: readonly NowItem[];
   readonly next: readonly NextItem[];
@@ -183,6 +186,8 @@ export type DeliveryFixture = {
   readonly loadingAlert?: { readonly title: string; readonly body: string };
   /** A read of the plane is in progress (FLT-DLV-01.03). */
   readonly refreshing?: boolean;
+  /** Shipped matrix rows; the shared SHIPPED_ROWS when absent. */
+  readonly shipped?: readonly ShippedRow[];
 };
 
 const passed = (primary: string, detail?: string): StageCell => ({
@@ -1256,6 +1261,36 @@ const OUTSIDE_BUNDLE: DeliveryFixture = {
   changes: [C1003, C1002, ...ALL_DELIVERED.changes],
 };
 
+// A bundle cut only because an outside-bundle component rebuilt: the same
+// component revisions as the bundle before it (FLT-DLV-23.06, SDLC-VIS-11.07).
+const RECUT_BUNDLE: DeliveryFixture = {
+  ...ALL_DELIVERED,
+  pipelineNow: {
+    ...ALL_DELIVERED.pipelineNow,
+    gitopsHead: "Bundle quiet ember, published 15:58, locked 16:01",
+    gitopsSameAs: "swift harbor",
+  },
+  shipped: [
+    { current: [false, false, false], contents: "1 issue" },
+    {
+      alias: "quiet ember",
+      current: [true, true, true],
+      contents: "0 issues, 2 PRs",
+      sameAs: "swift harbor",
+    },
+    {
+      alias: "swift harbor",
+      current: [false, false, false],
+      contents: "2 issues, 4 PRs",
+    },
+    {
+      alias: "calm meadow",
+      current: [false, false, false],
+      contents: "1 issue, 3 PRs",
+    },
+  ],
+};
+
 export const FIXTURES: Readonly<
   Record<
     Exclude<DeliveryState, "loading" | "not-configured" | "error">,
@@ -1271,6 +1306,7 @@ export const FIXTURES: Readonly<
   "bundle-train": BUNDLE_TRAIN,
   "waiting-on-renovate": WAITING_ON_RENOVATE,
   "outside-bundle": OUTSIDE_BUNDLE,
+  "recut-bundle": RECUT_BUNDLE,
   "source-unavailable": SOURCE_UNAVAILABLE,
   "restart-loading": RESTART_LOADING,
   refreshing: REFRESHING,
@@ -1562,6 +1598,8 @@ export type ShippedRow = {
   readonly alias?: string;
   readonly current: readonly boolean[];
   readonly contents: string;
+  /** This bundle is a re-cut of the named bundle (SDLC-VIS-11.07). */
+  readonly sameAs?: string;
 };
 
 export const SHIPPED_ROWS: readonly ShippedRow[] = [

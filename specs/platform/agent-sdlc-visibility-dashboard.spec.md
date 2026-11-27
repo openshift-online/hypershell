@@ -501,6 +501,11 @@ groups (for example "2 issues, 4 PRs"); the tracked-issue count SHALL remain an
 application-repository count and SHALL NOT include GitOps pull requests. Each
 issue SHALL link to the issue on GitHub.
 
+A bundle row whose bundle is a re-cut (its component revisions equal those of the
+bundle published just before it, FLT-DLV-23) SHALL also show "Same as <alias> - no new
+code" in its summary, naming that earlier bundle. Its pull-request count stays as it is:
+the GitOps pull requests that locked it are still real deployment changes.
+
 The **"Unreleased"** row SHALL hold only genuinely in-flight tracked work: shipped
 execution-record issues merged after the newest resolved bundle's build boundary, whose
 pull requests are therefore absent from every resolved bundle's compare window and which
@@ -561,6 +566,14 @@ from the Unreleased row into that bundle's row. The matrix SHALL NOT present a n
 - GIVEN an issue in the Unreleased row
 - WHEN a bundle is released whose PR set contains that issue's pull requests
 - THEN that issue SHALL appear in that bundle's row instead of Unreleased
+
+#### Scenario: SDLC-VIS-11.07 -- Re-cut bundle row names its twin
+
+- GIVEN bundle B2 has the same component revisions as B1, the bundle published just
+  before it
+- WHEN the matrix renders
+- THEN B2's row summary SHALL read "Same as <B1 alias> - no new code"
+- AND B1's row summary SHALL NOT read it when B1 changed a component revision
 
 ### Requirement: SDLC-VIS-25 -- SDLC Matrix Surfaces the Bundle's GitOps Deployment Group
 

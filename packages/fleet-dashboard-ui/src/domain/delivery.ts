@@ -343,6 +343,8 @@ export interface DeliveryNow {
     readonly publishedAt: string | null;
     readonly lockedAt: string | null;
     readonly pr: number | null;
+    /** Digest of the bundle this head is a re-cut of (FLT-DLV-23.06). */
+    readonly sameAs?: string | null;
   } | null;
   /** Builds and policy checks running on main. */
   readonly checks: readonly {

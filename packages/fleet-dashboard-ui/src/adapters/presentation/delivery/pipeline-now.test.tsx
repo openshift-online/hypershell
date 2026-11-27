@@ -269,6 +269,28 @@ describe("Pipeline now (FLT-DLV-23)", () => {
     expect(screen.queryByRole("grid", { name: "Bundle train" })).toBeNull();
   });
 
+  // Verifies: FLT-DLV-23.06
+  it("names the bundle a re-cut GitOps head repeats", () => {
+    renderView({
+      ...BUSY,
+      now: {
+        ...BUSY.now,
+        gitopsHead: { ...BUSY.now.gitopsHead, sameAs: "sha256:bbbb" },
+      },
+    });
+    expect(
+      screen.getByText(
+        line(`Same as ${identiName("sha256:bbbb")} - no new code`),
+      ),
+    ).toBeTruthy();
+  });
+
+  // Verifies: FLT-DLV-23.06
+  it("says nothing about re-cuts for a head with new code", () => {
+    renderView(BUSY);
+    expect(screen.queryByText(/no new code/)).toBeNull();
+  });
+
   it("names the answers an unavailable source hides", () => {
     renderView({
       ...BUSY,

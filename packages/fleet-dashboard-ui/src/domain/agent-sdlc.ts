@@ -122,6 +122,9 @@ export interface AgentSdlcBundleRow {
   /** The GitOps group's range state, or null/absent when no GitOps fields were reported
    *  (an older payload), which the UI renders as "no deployment section". */
   readonly gitopsStatus?: AgentSdlcGitOpsStatus | null;
+  /** Digest of the bundle this one is a re-cut of: the same component
+   *  revisions, so no new code (SDLC-VIS-11.07). Absent or null otherwise. */
+  readonly sameAs?: string | null;
 }
 
 /** The release-by-hub-cluster matrix (the Shipped column). */

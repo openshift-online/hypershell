@@ -61,6 +61,7 @@ tab can say what really runs where.
 | Superseded build | A failed component build of change C whose component was later built successfully at a later commit on `main`. That later image includes C's code (FLT-DLV-05). |
 | Partly shipped | A bundle carries some, but not all, of a change's rebuilt bundled components at or after the change (FLT-DLV-22). |
 | Bundle train | The bundles published from one burst of builds: one bundle per finished component build, each locked into GitOps `main` in turn (FLT-DLV-22). |
+| Re-cut bundle | A bundle whose component revisions equal those of the bundle published just before it. Only its release name differs, so it carries no new code. It happens when a build of an outside-bundle component makes a new Snapshot (FLT-DLV-23). |
 | Depends on | The environments whose gates an environment waits for before it promotes, from the promotion strategy's `dependsOn` (FLT-DLV-08). |
 
 ### Data reachability
@@ -1321,6 +1322,12 @@ It SHALL answer three questions:
    - Gates that a new bundle will restart, and the next environments to
      promote.
 
+When the GitOps head is a re-cut bundle, the head SHALL also read "Same as
+<alias> - no new code", naming the bundle published just before it. An
+operator then knows why no change on `main` lists it, and that its deploy
+changes no running code. The BFF SHALL decide this from the component
+revisions it already holds, with no extra source call.
+
 Each environment SHALL appear once, with the bundle it runs now, even when no
 listed change is in flight there. The panel SHALL use only data the payload
 already carries, and SHALL make no extra source call. When a source is
@@ -1365,6 +1372,15 @@ Unknown (FLT-DLV-13), the panel SHALL say which answer it cannot give.
 - AND the Renovate pull request #2951 proposes B with its checks running
 - WHEN the panel renders
 - THEN Next SHALL show B's identicon and alias with "PR #2951 open, checks running" and the expected lock time
+
+#### Scenario: FLT-DLV-23.06 -- Re-cut bundle at the GitOps head
+
+- GIVEN bundle B1 carries components api-server and control-plane at revisions r1 and r2
+- AND bundle B2, published after B1, carries the same components at the same revisions
+- AND GitOps `main` locks B2
+- WHEN the panel renders
+- THEN the GitOps head SHALL read "Same as <B1 alias> - no new code"
+- AND a GitOps head whose bundle changed any component revision SHALL NOT read it
 
 ### Requirement: FLT-DLV-24 -- Times and bundle identity
 

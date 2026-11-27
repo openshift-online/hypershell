@@ -73,6 +73,7 @@ import {
   type WhereToLook,
   SHIPPED_HUBS,
   SHIPPED_ROWS,
+  type ShippedRow,
 } from "./delivery-pipeline-fixtures";
 
 // Glass Delivery tab page surface (fleet-dashboard-delivery-pipeline.spec,
@@ -464,6 +465,12 @@ function PipelineNowCard({ now }: { now: PipelineNow }) {
                     <DescriptionListTerm>GitOps main</DescriptionListTerm>
                     <DescriptionListDescription>
                       <Timed text={now.gitopsHead} />
+                      {now.gitopsSameAs ? (
+                        <div>
+                          Same as <BundleName alias={now.gitopsSameAs} /> - no
+                          new code
+                        </div>
+                      ) : null}
                     </DescriptionListDescription>
                   </DescriptionListGroup>
                 </DescriptionList>
@@ -936,7 +943,11 @@ function ChangePanel({
 // strip scrolls sideways.
 // FLT-DLV-25: the Shipped release-by-hub-cluster matrix (SDLC-VIS-11), moved
 // here from the Agent SDLC tab. Rows expand to their issues, which link to GitHub.
-function ShippedCard() {
+function ShippedCard({
+  rows = SHIPPED_ROWS,
+}: {
+  rows?: readonly ShippedRow[];
+}) {
   return (
     <Card>
       <CardHeader>
@@ -958,7 +969,7 @@ function ShippedCard() {
             </Tr>
           </Thead>
           <Tbody>
-            {SHIPPED_ROWS.map((row) => (
+            {rows.map((row) => (
               <Tr key={row.alias ?? "unreleased"}>
                 <Td dataLabel="Bundle">
                   {row.alias ? (
@@ -980,7 +991,14 @@ function ShippedCard() {
                     )}
                   </Td>
                 ))}
-                <Td dataLabel="Contents">{row.contents}</Td>
+                <Td dataLabel="Contents">
+                  {row.contents}
+                  {row.sameAs ? (
+                    <div>
+                      Same as <BundleName alias={row.sameAs} /> - no new code
+                    </div>
+                  ) : null}
+                </Td>
               </Tr>
             ))}
           </Tbody>
@@ -1113,7 +1131,7 @@ function LoadedBody({
         <PipelineNowCard now={fixture.pipelineNow} />
       </StackItem>
       <StackItem>
-        <ShippedCard />
+        <ShippedCard rows={fixture.shipped} />
       </StackItem>
       <StackItem>
         <ChangeStrip

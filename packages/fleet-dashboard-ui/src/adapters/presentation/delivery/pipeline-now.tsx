@@ -531,6 +531,17 @@ export function PipelineNow({
                       ) : (
                         intl.formatMessage(STATE_LABEL.unknown)
                       )}
+                      {gitops?.sameAs ? (
+                        <div>
+                          <RichText
+                            bundles={[gitops.sameAs]}
+                            nowMs={nowMs}
+                            text={intl.formatMessage(m.nowGitopsSameAs, {
+                              bundle: alias(gitops.sameAs, null),
+                            })}
+                          />
+                        </div>
+                      ) : null}
                     </DescriptionListDescription>
                   </DescriptionListGroup>
                 </DescriptionList>

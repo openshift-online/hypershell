@@ -336,6 +336,32 @@ describe("Shipped matrix on the Delivery tab", () => {
     expect(groupedLink.getAttribute("href")).toBe("pr-526");
   });
 
+  // Verifies: SDLC-VIS-11.07
+  it("names the bundle a re-cut row repeats, and only on that row", () => {
+    const row = (version: string, digest: string, sameAs?: string) => ({
+      version,
+      digest,
+      date: null,
+      unreleased: false,
+      hubClusters: [],
+      issues: [],
+      otherPRs: [],
+      sameAs: sameAs ?? null,
+    });
+    renderView({
+      data: {
+        ...EMPTY,
+        matrix: {
+          hubClusters: [],
+          rows: [row("v2", "d2", "d1"), row("v1", "d1")],
+        },
+      },
+    });
+    expect(
+      screen.getAllByText(`Same as ${identiName("d1")} - no new code`),
+    ).toHaveLength(1);
+  });
+
   // Verifies: SDLC-VIS-25.02, SDLC-VIS-25.03, SDLC-VIS-25.06
   it("renders the GitOps deployment group apart from the application group", () => {
     const data: AgentSdlcData = {

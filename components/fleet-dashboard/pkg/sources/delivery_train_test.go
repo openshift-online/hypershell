@@ -451,3 +451,26 @@ func TestChangesNewestFirst(t *testing.T) {
 		t.Errorf("changes = %v, want newest first", got)
 	}
 }
+
+func TestPipelineNowRecutHead(t *testing.T) {
+	// Verifies: FLT-DLV-23.06
+	in := compInput()
+	b3 := in.bundles[2]
+	b4 := bundle(4, "c4", b3.Components)
+	in.bundles = append(in.bundles, b4)
+	in.lockedSet[b3.Digest], in.lockedSet[b4.Digest] = true, true
+	in.lockCommits = append([]LockCommit{
+		{SHA: "l4", Digest: b4.Digest, Date: tm(45), Message: "Update (#44)"},
+		{SHA: "l3", Digest: b3.Digest, Date: tm(35), Message: "Update (#43)"},
+	}, in.lockCommits...)
+	if h := payloadOf(in).Now.GitOpsHead; h == nil || h.Version != "v4" || h.SameAs != b3.Digest {
+		t.Errorf("gitops head = %+v, want v4 named a re-cut of %s", h, b3.Digest)
+	}
+
+	// A head bundle that changed a component revision is not a re-cut.
+	in.bundles = in.bundles[:3]
+	in.lockCommits = in.lockCommits[1:]
+	if h := payloadOf(in).Now.GitOpsHead; h == nil || h.Version != "v3" || h.SameAs != "" {
+		t.Errorf("gitops head = %+v, want v3 with no SameAs", h)
+	}
+}

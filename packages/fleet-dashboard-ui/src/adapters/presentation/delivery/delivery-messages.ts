@@ -867,6 +867,12 @@ export const deliveryMessages = defineMessages({
     defaultMessage: "Bundle {bundle}, published {published}, locked {locked}",
     description: "The bundle GitOps main locks, with its lock time.",
   },
+  nowGitopsSameAs: {
+    id: "fleet.delivery.now.gitopsSameAs",
+    defaultMessage: "Same as {bundle} - no new code",
+    description:
+      "Under the GitOps head: the locked bundle is a re-cut of the named bundle, with the same component revisions.",
+  },
   nowInFlight: {
     id: "fleet.delivery.now.inFlight",
     defaultMessage: "In flight",
