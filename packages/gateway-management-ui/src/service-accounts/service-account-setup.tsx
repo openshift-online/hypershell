@@ -18,6 +18,7 @@ import {
   Stack,
   StackItem,
   TextInput,
+  Title,
 } from "@patternfly/react-core";
 import { EyeIcon, EyeSlashIcon } from "@patternfly/react-icons";
 import { useEffect, useId, useState } from "react";
@@ -175,12 +176,14 @@ export function ServiceAccountSetupView({
   connection,
   isAcknowledged,
   onAcknowledgedChange,
+  skippedDefaultWorkspace = false,
 }: {
   account: OpenShellGatewayServiceAccountRecord;
   clientSecret?: string;
   connection: OpenShellGatewayServiceAccountConnection;
   isAcknowledged: boolean;
   onAcknowledgedChange: (value: boolean) => void;
+  skippedDefaultWorkspace?: boolean;
 }) {
   const intl = useIntl();
   const [isJwtExpanded, setIsJwtExpanded] = useState(false);
@@ -336,15 +339,20 @@ export function ServiceAccountSetupView({
       {account.role === "openshell-user" ? (
         <>
           <StackItem>
-            <Alert
-              isInline
-              title={intl.formatMessage(messages.workspaceMembershipNote)}
-              variant="info"
-            />
+            <Title headingLevel="h3" size="md">
+              {intl.formatMessage(messages.serviceAccountDefaultWorkspaceTitle)}
+            </Title>
+            <Content component="p">
+              {intl.formatMessage(
+                skippedDefaultWorkspace
+                  ? messages.serviceAccountWithoutDefaultWorkspaceResult
+                  : messages.serviceAccountDefaultWorkspaceResult,
+              )}
+            </Content>
           </StackItem>
           <StackItem>
             <ExpandableSection
-              toggleText={intl.formatMessage(messages.grantWorkspaceAccess)}
+              toggleText={intl.formatMessage(messages.advancedWorkspaceCommand)}
               toggleWrapper="h3"
             >
               <Stack hasGutter>

@@ -8,13 +8,16 @@ import (
 
 	. "github.com/onsi/gomega"
 
+	"github.com/openshift-online/hypershell/components/api-server/plugins/defaultWorkspaceBootstrap"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gatewayAccess"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/hypershell/components/api-server/test"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
+	trexerrors "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
 
 // fakeDirectory is an in-memory Keycloak realm directory keyed by lowercased
@@ -26,6 +29,16 @@ type fakeDirectory struct {
 func (f fakeDirectory) Resolve(_ context.Context, username string) (gatewayAccess.DirectoryUser, bool, error) {
 	u, ok := f.users[strings.ToLower(username)]
 	return u, ok, nil
+}
+
+func (f fakeDirectory) ResolveMany(_ context.Context, usernames []string) ([]gatewayAccess.DirectoryUser, error) {
+	out := make([]gatewayAccess.DirectoryUser, 0, len(usernames))
+	for _, username := range usernames {
+		if user, ok := f.users[strings.ToLower(username)]; ok {
+			out = append(out, user)
+		}
+	}
+	return out, nil
 }
 
 func (f fakeDirectory) Search(_ context.Context, query string, _ int) ([]gatewayAccess.DirectoryUser, error) {
@@ -45,6 +58,38 @@ func realm(users ...gatewayAccess.DirectoryUser) fakeDirectory {
 		m[strings.ToLower(u.Username)] = u
 	}
 	return fakeDirectory{users: m}
+}
+
+type fakeGatewayLookup struct{}
+
+func (f fakeGatewayLookup) Get(context.Context, string) (*gateways.Gateway, *trexerrors.ServiceError) {
+	oidc := `{"issuer":"https://issuer.example/realms/hypershell","client_id":"gateway-client","audience":"gateway-client"}`
+	route := "grpcs://gateway.example:443"
+	conditions := `[{"type":"DefaultWorkspaceBootstrapReady","condition_status":"Complete"}]`
+	return &gateways.Gateway{Namespace: "gateway-namespace", Oidc: &oidc, RouteAddress: &route, ProvisioningConditions: &conditions}, nil
+}
+
+type fakeDefaultWorkspaceBootstrap struct{}
+
+func (f fakeDefaultWorkspaceBootstrap) Bootstrap(context.Context, defaultWorkspaceBootstrap.Input) *defaultWorkspaceBootstrap.APIError {
+	return nil
+}
+
+func (f fakeDefaultWorkspaceBootstrap) ListWorkspaceMemberships(context.Context, defaultWorkspaceBootstrap.Input) ([]defaultWorkspaceBootstrap.WorkspaceMembership, *defaultWorkspaceBootstrap.APIError) {
+	return nil, nil
+}
+
+func (f fakeDefaultWorkspaceBootstrap) ListWorkspaceVisibility(context.Context, defaultWorkspaceBootstrap.Input) (defaultWorkspaceBootstrap.WorkspaceVisibility, *defaultWorkspaceBootstrap.APIError) {
+	return defaultWorkspaceBootstrap.WorkspaceVisibility{}, nil
+}
+
+func withDefaultWorkspaceBootstrap() func() {
+	gatewayAccess.SetGatewayLookupForTest(fakeGatewayLookup{})
+	gatewayAccess.SetDefaultWorkspaceBootstrapForTest(fakeDefaultWorkspaceBootstrap{})
+	return func() {
+		gatewayAccess.SetGatewayLookupForTest(nil)
+		gatewayAccess.SetDefaultWorkspaceBootstrapForTest(nil)
+	}
 }
 
 func rbService() roleBindings.RoleBindingService {
@@ -75,6 +120,7 @@ func accessSvc(dir gatewayAccess.DirectoryResolver) gatewayAccess.Service {
 func TestAccessList_EnrichedTiers(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withDefaultWorkspaceBootstrap()()
 	gw := "gw-list-enriched"
 
 	owner := seed(t, gw, "first-owner", roles.RoleGatewayOwner)
@@ -83,8 +129,11 @@ func TestAccessList_EnrichedTiers(t *testing.T) {
 	seed(t, gw, "viewer-one", roles.RoleGatewayViewer)
 	seed(t, gw, "viewer-two", roles.RoleGatewayViewer)
 
-	svc := accessSvc(realm())
-	items, total, caps, aerr := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
+	svc := accessSvc(realm(
+		gatewayAccess.DirectoryUser{Username: "viewer-one", Subject: "sub-viewer-one"},
+		gatewayAccess.DirectoryUser{Username: "viewer-two", Subject: "sub-viewer-two"},
+	))
+	items, _, total, caps, aerr := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
 	Expect(aerr).To(BeNil())
 	Expect(total).To(Equal(int64(5)))
 	Expect(items).To(HaveLen(5))
@@ -107,6 +156,7 @@ func TestAccessList_EnrichedTiers(t *testing.T) {
 func TestAccessList_FilterByRoleAndSearch(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withDefaultWorkspaceBootstrap()()
 	gw := "gw-list-filter"
 
 	owner := seed(t, gw, "owner-ff", roles.RoleGatewayOwner)
@@ -114,8 +164,10 @@ func TestAccessList_FilterByRoleAndSearch(t *testing.T) {
 	seed(t, gw, "bob-user", roles.RoleGatewayViewer)
 	seed(t, gw, "alice-admin", roles.RoleGatewayAdmin)
 
-	svc := accessSvc(realm())
-	items, _, _, aerr := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50, Role: gatewayAccess.TierUser, Search: "ali"})
+	svc := accessSvc(realm(
+		gatewayAccess.DirectoryUser{Username: "alice-user", Subject: "sub-alice-user"},
+	))
+	items, _, _, _, aerr := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50, Role: gatewayAccess.TierUser, Search: "ali"})
 	Expect(aerr).To(BeNil())
 	Expect(items).To(HaveLen(1))
 	Expect(items[0].Username).To(Equal("alice-user"))
@@ -126,6 +178,7 @@ func TestAccessList_FilterByRoleAndSearch(t *testing.T) {
 func TestGrant_NeverSignedInUserPreProvisions(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withDefaultWorkspaceBootstrap()()
 	gw := "gw-grant-newuser"
 	owner := seed(t, gw, "owner-np", roles.RoleGatewayOwner)
 
@@ -180,6 +233,7 @@ func TestGrant_AdminCannotAssignOwner(t *testing.T) {
 func TestGrant_AdminCanGrantUser(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withDefaultWorkspaceBootstrap()()
 	gw := "gw-admin-grants"
 	seed(t, gw, "owner-ag", roles.RoleGatewayOwner)
 	admin := seed(t, gw, "admin-ag", roles.RoleGatewayAdmin)
@@ -212,13 +266,16 @@ func TestGrant_AdminCannotDemoteOwner(t *testing.T) {
 func TestChangeRole_PromoteInPlaceKeepsBindingID(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withDefaultWorkspaceBootstrap()()
 	gw := "gw-change-inplace"
 	owner := seed(t, gw, "owner-ip", roles.RoleGatewayOwner)
 	target := seed(t, gw, "target-ip", roles.RoleGatewayViewer)
 
-	svc := accessSvc(realm())
+	svc := accessSvc(realm(
+		gatewayAccess.DirectoryUser{Username: "target-ip", Subject: "sub-target-ip"},
+	))
 	// Capture the original binding id.
-	before, _, _, _ := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
+	before, _, _, _, _ := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
 	var beforeID string
 	for _, it := range before {
 		if it.UserID == target {
@@ -234,7 +291,7 @@ func TestChangeRole_PromoteInPlaceKeepsBindingID(t *testing.T) {
 	Expect(item.RoleBindingID).To(Equal(beforeID))
 
 	// Exactly one binding remains for the target (GTW-ACC-10).
-	after, _, _, _ := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
+	after, _, _, _, _ := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
 	count := 0
 	for _, it := range after {
 		if it.UserID == target {
@@ -335,9 +392,10 @@ func TestViewerCannotManage(t *testing.T) {
 func TestIdempotentRegrant(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withDefaultWorkspaceBootstrap()()
 	gw := "gw-idempotent"
 	owner := seed(t, gw, "owner-id", roles.RoleGatewayOwner)
-	dir := realm(gatewayAccess.DirectoryUser{Username: "repeat"})
+	dir := realm(gatewayAccess.DirectoryUser{Username: "repeat", Subject: "sub-repeat"})
 	svc := accessSvc(dir)
 
 	_, aerr := svc.Grant(context.Background(), gw, owner, gatewayAccess.GrantInput{Username: "repeat", Role: gatewayAccess.TierUser})
@@ -345,7 +403,7 @@ func TestIdempotentRegrant(t *testing.T) {
 	_, aerr = svc.Grant(context.Background(), gw, owner, gatewayAccess.GrantInput{Username: "repeat", Role: gatewayAccess.TierUser})
 	Expect(aerr).To(BeNil())
 
-	items, _, _, _ := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
+	items, _, _, _, _ := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
 	count := 0
 	for _, it := range items {
 		if it.Username == "repeat" {
@@ -383,7 +441,7 @@ func TestDirectorySearch_Authorization(t *testing.T) {
 // userTierOf lists access and returns the target's tier via capabilities-style
 // lookup (the caller is the subject here).
 func userTierOf(svc gatewayAccess.Service, gw, userID string) (string, error) {
-	items, _, _, aerr := svc.List(context.Background(), gw, userID, gatewayAccess.ListOptions{Page: 1, Size: 100})
+	items, _, _, _, aerr := svc.List(context.Background(), gw, userID, gatewayAccess.ListOptions{Page: 1, Size: 100})
 	if aerr != nil {
 		return "", aerr
 	}
@@ -427,6 +485,7 @@ func hasGatewayBinding(t *testing.T, userID, gw string) bool {
 func TestPlatformAdmin_ManagesAccessWithoutBindingOrLogin(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withDefaultWorkspaceBootstrap()()
 	gw := "gw-padmin-manage"
 	seed(t, gw, "owner-pa", roles.RoleGatewayOwner)
 	padmin := seedPlatformAdmin(t, "padmin-pa")
@@ -435,7 +494,7 @@ func TestPlatformAdmin_ManagesAccessWithoutBindingOrLogin(t *testing.T) {
 	svc := accessSvc(dir)
 
 	// Capabilities are owner-equivalent even though padmin has no binding on gw.
-	_, _, caps, aerr := svc.List(context.Background(), gw, padmin, gatewayAccess.ListOptions{Page: 1, Size: 50})
+	_, _, _, caps, aerr := svc.List(context.Background(), gw, padmin, gatewayAccess.ListOptions{Page: 1, Size: 50})
 	Expect(aerr).To(BeNil())
 	Expect(caps.CallerRole).To(Equal(gatewayAccess.TierOwner))
 	Expect(caps.CanManageAccess).To(BeTrue())
@@ -536,6 +595,7 @@ func grantInOwnRequestTransaction(svc gatewayAccess.Service, callerUsername, cal
 func TestGrant_ConcurrentMutualGrantsWithChangedProfilesDoNotDeadlock(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withDefaultWorkspaceBootstrap()()
 
 	gwAlice := "gw-mutual-alice"
 	gwBob := "gw-mutual-bob"

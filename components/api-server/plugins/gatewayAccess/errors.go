@@ -53,3 +53,14 @@ func fromServiceError(serr *trexerrors.ServiceError) *APIError {
 	}
 	return &APIError{Status: status, Code: fmt.Sprintf("role-binding-%v", serr.Code), Message: serr.Reason}
 }
+
+func fromGatewayServiceError(serr *trexerrors.ServiceError) *APIError {
+	if serr == nil {
+		return nil
+	}
+	status := serr.HttpCode
+	if status == 0 {
+		status = http.StatusInternalServerError
+	}
+	return &APIError{Status: status, Code: fmt.Sprintf("gateway-%v", serr.Code), Message: serr.Reason}
+}

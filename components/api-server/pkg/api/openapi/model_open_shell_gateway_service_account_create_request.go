@@ -27,6 +27,8 @@ type OpenShellGatewayServiceAccountCreateRequest struct {
 	CredentialType *string                             `json:"credential_type,omitempty"`
 	Role           *OpenShellGatewayServiceAccountRole `json:"role,omitempty"`
 	ExpiresAt      *time.Time                          `json:"expires_at,omitempty"`
+	// Skip adding an openshell-user service account to the gateway's OpenShell default workspace
+	SkipDefaultWorkspaceBootstrap *bool `json:"skip_default_workspace_bootstrap,omitempty"`
 }
 
 type _OpenShellGatewayServiceAccountCreateRequest OpenShellGatewayServiceAccountCreateRequest
@@ -40,6 +42,8 @@ func NewOpenShellGatewayServiceAccountCreateRequest(name string) *OpenShellGatew
 	this.Name = name
 	var credentialType string = "client_secret"
 	this.CredentialType = &credentialType
+	var skipDefaultWorkspaceBootstrap bool = false
+	this.SkipDefaultWorkspaceBootstrap = &skipDefaultWorkspaceBootstrap
 	return &this
 }
 
@@ -50,6 +54,8 @@ func NewOpenShellGatewayServiceAccountCreateRequestWithDefaults() *OpenShellGate
 	this := OpenShellGatewayServiceAccountCreateRequest{}
 	var credentialType string = "client_secret"
 	this.CredentialType = &credentialType
+	var skipDefaultWorkspaceBootstrap bool = false
+	this.SkipDefaultWorkspaceBootstrap = &skipDefaultWorkspaceBootstrap
 	return &this
 }
 
@@ -216,6 +222,38 @@ func (o *OpenShellGatewayServiceAccountCreateRequest) SetExpiresAt(v time.Time) 
 	o.ExpiresAt = &v
 }
 
+// GetSkipDefaultWorkspaceBootstrap returns the SkipDefaultWorkspaceBootstrap field value if set, zero value otherwise.
+func (o *OpenShellGatewayServiceAccountCreateRequest) GetSkipDefaultWorkspaceBootstrap() bool {
+	if o == nil || IsNil(o.SkipDefaultWorkspaceBootstrap) {
+		var ret bool
+		return ret
+	}
+	return *o.SkipDefaultWorkspaceBootstrap
+}
+
+// GetSkipDefaultWorkspaceBootstrapOk returns a tuple with the SkipDefaultWorkspaceBootstrap field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *OpenShellGatewayServiceAccountCreateRequest) GetSkipDefaultWorkspaceBootstrapOk() (*bool, bool) {
+	if o == nil || IsNil(o.SkipDefaultWorkspaceBootstrap) {
+		return nil, false
+	}
+	return o.SkipDefaultWorkspaceBootstrap, true
+}
+
+// HasSkipDefaultWorkspaceBootstrap returns a boolean if a field has been set.
+func (o *OpenShellGatewayServiceAccountCreateRequest) HasSkipDefaultWorkspaceBootstrap() bool {
+	if o != nil && !IsNil(o.SkipDefaultWorkspaceBootstrap) {
+		return true
+	}
+
+	return false
+}
+
+// SetSkipDefaultWorkspaceBootstrap gets a reference to the given bool and assigns it to the SkipDefaultWorkspaceBootstrap field.
+func (o *OpenShellGatewayServiceAccountCreateRequest) SetSkipDefaultWorkspaceBootstrap(v bool) {
+	o.SkipDefaultWorkspaceBootstrap = &v
+}
+
 func (o OpenShellGatewayServiceAccountCreateRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -238,6 +276,9 @@ func (o OpenShellGatewayServiceAccountCreateRequest) ToMap() (map[string]interfa
 	}
 	if !IsNil(o.ExpiresAt) {
 		toSerialize["expires_at"] = o.ExpiresAt
+	}
+	if !IsNil(o.SkipDefaultWorkspaceBootstrap) {
+		toSerialize["skip_default_workspace_bootstrap"] = o.SkipDefaultWorkspaceBootstrap
 	}
 	return toSerialize, nil
 }

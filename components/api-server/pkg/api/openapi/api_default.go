@@ -8022,6 +8022,7 @@ type ApiListGatewayAccessRequest struct {
 	size       *int32
 	role       *GatewayAccessRole
 	search     *string
+	workspace  *string
 	sort       *string
 	order      *string
 }
@@ -8047,6 +8048,12 @@ func (r ApiListGatewayAccessRequest) Role(role GatewayAccessRole) ApiListGateway
 // Specifies the search criteria
 func (r ApiListGatewayAccessRequest) Search(search string) ApiListGatewayAccessRequest {
 	r.search = &search
+	return r
+}
+
+// Filter rows to identities with access to a gateway workspace
+func (r ApiListGatewayAccessRequest) Workspace(workspace string) ApiListGatewayAccessRequest {
+	r.workspace = &workspace
 	return r
 }
 
@@ -8119,6 +8126,9 @@ func (a *DefaultAPIService) ListGatewayAccessExecute(r ApiListGatewayAccessReque
 	}
 	if r.search != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "search", r.search, "form", "")
+	}
+	if r.workspace != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "workspace", r.workspace, "", "")
 	}
 	if r.sort != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "sort", r.sort, "", "")

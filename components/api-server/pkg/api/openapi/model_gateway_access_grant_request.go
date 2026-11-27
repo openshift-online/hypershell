@@ -25,6 +25,8 @@ type GatewayAccessGrantRequest struct {
 	// Optional Keycloak subject reference returned by the directory search
 	Subject *string           `json:"subject,omitempty"`
 	Role    GatewayAccessRole `json:"role"`
+	// Skip adding an eligible user to the gateway's OpenShell default workspace
+	SkipDefaultWorkspaceBootstrap *bool `json:"skip_default_workspace_bootstrap,omitempty"`
 }
 
 type _GatewayAccessGrantRequest GatewayAccessGrantRequest
@@ -37,6 +39,8 @@ func NewGatewayAccessGrantRequest(username string, role GatewayAccessRole) *Gate
 	this := GatewayAccessGrantRequest{}
 	this.Username = username
 	this.Role = role
+	var skipDefaultWorkspaceBootstrap bool = false
+	this.SkipDefaultWorkspaceBootstrap = &skipDefaultWorkspaceBootstrap
 	return &this
 }
 
@@ -45,6 +49,8 @@ func NewGatewayAccessGrantRequest(username string, role GatewayAccessRole) *Gate
 // but it doesn't guarantee that properties required by API are set
 func NewGatewayAccessGrantRequestWithDefaults() *GatewayAccessGrantRequest {
 	this := GatewayAccessGrantRequest{}
+	var skipDefaultWorkspaceBootstrap bool = false
+	this.SkipDefaultWorkspaceBootstrap = &skipDefaultWorkspaceBootstrap
 	return &this
 }
 
@@ -128,6 +134,38 @@ func (o *GatewayAccessGrantRequest) SetRole(v GatewayAccessRole) {
 	o.Role = v
 }
 
+// GetSkipDefaultWorkspaceBootstrap returns the SkipDefaultWorkspaceBootstrap field value if set, zero value otherwise.
+func (o *GatewayAccessGrantRequest) GetSkipDefaultWorkspaceBootstrap() bool {
+	if o == nil || IsNil(o.SkipDefaultWorkspaceBootstrap) {
+		var ret bool
+		return ret
+	}
+	return *o.SkipDefaultWorkspaceBootstrap
+}
+
+// GetSkipDefaultWorkspaceBootstrapOk returns a tuple with the SkipDefaultWorkspaceBootstrap field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GatewayAccessGrantRequest) GetSkipDefaultWorkspaceBootstrapOk() (*bool, bool) {
+	if o == nil || IsNil(o.SkipDefaultWorkspaceBootstrap) {
+		return nil, false
+	}
+	return o.SkipDefaultWorkspaceBootstrap, true
+}
+
+// HasSkipDefaultWorkspaceBootstrap returns a boolean if a field has been set.
+func (o *GatewayAccessGrantRequest) HasSkipDefaultWorkspaceBootstrap() bool {
+	if o != nil && !IsNil(o.SkipDefaultWorkspaceBootstrap) {
+		return true
+	}
+
+	return false
+}
+
+// SetSkipDefaultWorkspaceBootstrap gets a reference to the given bool and assigns it to the SkipDefaultWorkspaceBootstrap field.
+func (o *GatewayAccessGrantRequest) SetSkipDefaultWorkspaceBootstrap(v bool) {
+	o.SkipDefaultWorkspaceBootstrap = &v
+}
+
 func (o GatewayAccessGrantRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -143,6 +181,9 @@ func (o GatewayAccessGrantRequest) ToMap() (map[string]interface{}, error) {
 		toSerialize["subject"] = o.Subject
 	}
 	toSerialize["role"] = o.Role
+	if !IsNil(o.SkipDefaultWorkspaceBootstrap) {
+		toSerialize["skip_default_workspace_bootstrap"] = o.SkipDefaultWorkspaceBootstrap
+	}
 	return toSerialize, nil
 }
 

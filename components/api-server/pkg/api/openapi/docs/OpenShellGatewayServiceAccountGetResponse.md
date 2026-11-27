@@ -14,6 +14,7 @@ Name | Type | Description | Notes
 **CreatedByUserId** | **string** |  |
 **ClientId** | **string** |  |
 **Subject** | **string** |  |
+**Workspaces** | **[]string** | Gateway-scoped workspace names for openshell-user rows; empty for openshell-admin rows |
 **ExpiresAt** | **time.Time** |  |
 **RevokedAt** | Pointer to **NullableTime** |  | [optional]
 **LastError** | Pointer to **NullableString** |  | [optional]
@@ -25,7 +26,7 @@ Name | Type | Description | Notes
 
 ### NewOpenShellGatewayServiceAccountGetResponse
 
-`func NewOpenShellGatewayServiceAccountGetResponse(id string, gatewayId string, name string, credentialType string, role OpenShellGatewayServiceAccountRole, status OpenShellGatewayServiceAccountStatus, createdByUserId string, clientId string, subject string, expiresAt time.Time, createdAt time.Time, updatedAt time.Time, connection OpenShellGatewayServiceAccountConnection, ) *OpenShellGatewayServiceAccountGetResponse`
+`func NewOpenShellGatewayServiceAccountGetResponse(id string, gatewayId string, name string, credentialType string, role OpenShellGatewayServiceAccountRole, status OpenShellGatewayServiceAccountStatus, createdByUserId string, clientId string, subject string, workspaces []string, expiresAt time.Time, createdAt time.Time, updatedAt time.Time, connection OpenShellGatewayServiceAccountConnection, ) *OpenShellGatewayServiceAccountGetResponse`
 
 NewOpenShellGatewayServiceAccountGetResponse instantiates a new OpenShellGatewayServiceAccountGetResponse object
 This constructor will assign default values to properties that have it defined,
@@ -253,6 +254,26 @@ and a boolean to check if the value has been set.
 `func (o *OpenShellGatewayServiceAccountGetResponse) SetSubject(v string)`
 
 SetSubject sets Subject field to given value.
+
+
+### GetWorkspaces
+
+`func (o *OpenShellGatewayServiceAccountGetResponse) GetWorkspaces() []string`
+
+GetWorkspaces returns the Workspaces field if non-nil, zero value otherwise.
+
+### GetWorkspacesOk
+
+`func (o *OpenShellGatewayServiceAccountGetResponse) GetWorkspacesOk() (*[]string, bool)`
+
+GetWorkspacesOk returns a tuple with the Workspaces field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetWorkspaces
+
+`func (o *OpenShellGatewayServiceAccountGetResponse) SetWorkspaces(v []string)`
+
+SetWorkspaces sets Workspaces field to given value.
 
 
 ### GetExpiresAt

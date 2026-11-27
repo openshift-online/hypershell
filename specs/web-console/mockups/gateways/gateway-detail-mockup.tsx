@@ -19,6 +19,7 @@ export function GatewayDetailMockup({
   modal,
   policyDrawer,
   policyMode,
+  workspaceFilter,
 }: {
   activeTab?: GatewayDetailTab;
   attention?: GatewayDetailAttention;
@@ -26,6 +27,7 @@ export function GatewayDetailMockup({
   modal?: GatewayDetailModal;
   policyDrawer?: string;
   policyMode?: PolicyEnforcementMode;
+  workspaceFilter?: string;
 }) {
   return (
     <MockupShell activeSection="gateways">
@@ -36,6 +38,7 @@ export function GatewayDetailMockup({
         modal={modal}
         policyDrawer={policyDrawer}
         policyMode={policyMode}
+        workspaceFilter={workspaceFilter}
       />
     </MockupShell>
   );

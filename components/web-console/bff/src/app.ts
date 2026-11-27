@@ -280,6 +280,9 @@ function outcomeForStatus(statusCode: number): ProxyOutcome {
   return "success";
 }
 
+export const SERVER_REQUEST_TIMEOUT_MS = 30_000;
+export const SERVER_CONNECTION_TIMEOUT_MS = 31_000;
+
 export async function buildApp(
   config: ServerConfig,
   tracing: BffTracing = disabledTracing,
@@ -288,7 +291,7 @@ export async function buildApp(
 
   const app = Fastify({
     bodyLimit: 1_048_576,
-    connectionTimeout: 10_000,
+    connectionTimeout: SERVER_CONNECTION_TIMEOUT_MS,
     keepAliveTimeout: 72_000,
     logController: new LogController({ disableRequestLogging: true }),
     logger: {
@@ -302,7 +305,7 @@ export async function buildApp(
         censor: "[REDACTED]",
       },
     },
-    requestTimeout: 30_000,
+    requestTimeout: SERVER_REQUEST_TIMEOUT_MS,
     trustProxy: config.nodeEnv !== "development" || !!config.oidcIssuer,
   });
 

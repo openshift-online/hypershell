@@ -1,11 +1,12 @@
 package gateway
 
 const (
-	ConditionEnvironmentReady      = "EnvironmentReady"
-	ConditionDatabaseReady         = "DatabaseReady"
-	ConditionIdentityProviderReady = "IdentityProviderReady"
-	ConditionGatewayDeployed       = "GatewayDeployed"
-	ConditionGatewayHealthy        = "GatewayHealthy"
+	ConditionEnvironmentReady               = "EnvironmentReady"
+	ConditionDatabaseReady                  = "DatabaseReady"
+	ConditionIdentityProviderReady          = "IdentityProviderReady"
+	ConditionDefaultWorkspaceBootstrapReady = "DefaultWorkspaceBootstrapReady"
+	ConditionGatewayDeployed                = "GatewayDeployed"
+	ConditionGatewayHealthy                 = "GatewayHealthy"
 
 	StatusPending    = "Pending"
 	StatusInProgress = "InProgress"
@@ -25,12 +26,14 @@ type ProvisioningCondition struct {
 type ProgressReporter func(step, status, message string)
 
 // InitConditions returns the initial ordered conditions list for a gateway.
-// Keycloak is mandatory, so IdentityProviderReady is always one of them.
+// Keycloak is mandatory, so identity-provider and default-workspace bootstrap
+// readiness are always included.
 func InitConditions() []ProvisioningCondition {
 	return []ProvisioningCondition{
 		{Type: ConditionEnvironmentReady, ConditionStatus: StatusPending},
 		{Type: ConditionDatabaseReady, ConditionStatus: StatusPending},
 		{Type: ConditionIdentityProviderReady, ConditionStatus: StatusPending},
+		{Type: ConditionDefaultWorkspaceBootstrapReady, ConditionStatus: StatusPending},
 		{Type: ConditionGatewayDeployed, ConditionStatus: StatusPending},
 		{Type: ConditionGatewayHealthy, ConditionStatus: StatusPending},
 	}

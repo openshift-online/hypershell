@@ -33,6 +33,10 @@ export const UserAccess: Story = {
   args: { activeTab: "manage-access" },
 };
 
+export const UserAccessWorkspaceFilter: Story = {
+  args: { activeTab: "manage-access", workspaceFilter: "billing" },
+};
+
 export const ServiceAccounts: Story = {
   args: { activeTab: "service-accounts" },
 };

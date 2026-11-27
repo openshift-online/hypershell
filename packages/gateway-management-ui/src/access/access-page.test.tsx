@@ -20,6 +20,7 @@ const creator: GatewayAccessGrantRecord = {
   roleBindingId: "rb-owner",
   userId: "u-owner",
   username: "owner1",
+  workspaces: [],
 };
 const secondOwner: GatewayAccessGrantRecord = {
   grantedAt: "2026-08-21T12:00:00Z",
@@ -28,6 +29,7 @@ const secondOwner: GatewayAccessGrantRecord = {
   roleBindingId: "rb-owner-2",
   userId: "u-owner-2",
   username: "owner2",
+  workspaces: [],
 };
 const admin: GatewayAccessGrantRecord = {
   grantedAt: "2026-08-21T12:00:00Z",
@@ -36,6 +38,7 @@ const admin: GatewayAccessGrantRecord = {
   roleBindingId: "rb-admin",
   userId: "u-admin",
   username: "admin1",
+  workspaces: [],
 };
 const user: GatewayAccessGrantRecord = {
   grantedAt: "2026-08-21T12:00:00Z",
@@ -44,6 +47,7 @@ const user: GatewayAccessGrantRecord = {
   roleBindingId: "rb-user",
   userId: "u-user",
   username: "user1",
+  workspaces: ["research", "default"],
 };
 
 const ownerCapabilities: GatewayAccessCapabilities = {
@@ -65,8 +69,16 @@ const viewerCapabilities: GatewayAccessCapabilities = {
 function accessPage(
   items: readonly GatewayAccessGrantRecord[],
   capabilities: GatewayAccessCapabilities,
+  workspaces: readonly string[] = ["default", "research"],
 ): GatewayAccessPage {
-  return { capabilities, items, page: 1, size: 20, total: items.length };
+  return {
+    capabilities,
+    items,
+    page: 1,
+    size: 20,
+    total: items.length,
+    workspaces,
+  };
 }
 
 const mocks = vi.hoisted(() => ({
@@ -145,6 +157,50 @@ describe("AccessPage", () => {
     expect(screen.getByText("owner1")).toBeTruthy();
     expect(screen.getByText("Amy Admin")).toBeTruthy();
     expect(screen.getByText("Uma User")).toBeTruthy();
+    expect(screen.getAllByText("Admin").length).toBeGreaterThanOrEqual(1);
+    const expectedWidths: Record<string, string> = {
+      "User ID": "25",
+      "Gateway role": "25",
+      Workspaces: "50",
+    };
+    Object.entries(expectedWidths).forEach(([name, width]) => {
+      expect(screen.getByRole("columnheader", { name }).className).toContain(
+        `pf-m-width-${width}`,
+      );
+    });
+    expect(
+      screen.getAllByRole("listitem").map((item) => item.textContent),
+    ).toEqual(["default", "research"]);
+  });
+
+  it("filters by workspace server-side", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Uma User");
+
+    await user.click(
+      screen.getByRole("button", { name: "Filter by workspace" }),
+    );
+    await user.click(screen.getByRole("option", { name: "research" }));
+
+    await waitFor(() => {
+      expect(mocks.list).toHaveBeenLastCalledWith(
+        "gateway-1",
+        expect.objectContaining({ page: 1, workspace: "research" }),
+        expect.any(AbortSignal),
+      );
+    });
+  });
+
+  it("hides the workspace filter when the gateway has one workspace", async () => {
+    mocks.list.mockResolvedValue(
+      accessPage([user], ownerCapabilities, ["default"]),
+    );
+    renderPage();
+    await screen.findByText("Uma User");
+    expect(
+      screen.queryByRole("button", { name: "Filter by workspace" }),
+    ).toBeNull();
   });
 
   // Verifies: WEB-ACC-08.01
@@ -205,7 +261,9 @@ describe("AccessPage", () => {
       { timeout: 2_000 },
     );
 
-    await user1.click(screen.getByRole("button", { name: "Filter by role" }));
+    await user1.click(
+      screen.getByRole("button", { name: "Filter by gateway role" }),
+    );
     await user1.click(screen.getByRole("option", { name: "User" }));
     await waitFor(() => {
       expect(mocks.list).toHaveBeenLastCalledWith(
@@ -223,7 +281,7 @@ describe("AccessPage", () => {
     await screen.findByText("Uma User");
 
     await user1.click(
-      screen.getByRole("button", { name: "Change role: Uma User" }),
+      screen.getByRole("button", { name: "Change gateway role: Uma User" }),
     );
     await user1.click(screen.getByRole("option", { name: "Admin" }));
     await waitFor(() => {
@@ -243,18 +301,18 @@ describe("AccessPage", () => {
     await screen.findByText("Owen Two");
 
     await user1.click(
-      screen.getByRole("button", { name: "Change role: Owen Two" }),
+      screen.getByRole("button", { name: "Change gateway role: Owen Two" }),
     );
     await user1.click(screen.getByRole("option", { name: "Admin" }));
 
     // The change is held until the user confirms in the modal.
     const dialog = await screen.findByRole("dialog", {
-      name: "Change your own role?",
+      name: "Change your own gateway role?",
     });
     expect(mocks.change).not.toHaveBeenCalled();
 
     await user1.click(
-      within(dialog).getByRole("button", { name: "Change my role" }),
+      within(dialog).getByRole("button", { name: "Change my gateway role" }),
     );
     await waitFor(() => {
       expect(mocks.change).toHaveBeenCalledWith(
@@ -274,14 +332,14 @@ describe("AccessPage", () => {
     await screen.findByText("Uma User");
 
     await user1.click(
-      screen.getByRole("button", { name: "Change role: Uma User" }),
+      screen.getByRole("button", { name: "Change gateway role: Uma User" }),
     );
     await user1.click(screen.getByRole("option", { name: "Admin" }));
     await waitFor(() => {
       expect(mocks.change).toHaveBeenCalledWith("gateway-1", "u-user", "admin");
     });
     expect(
-      screen.queryByRole("dialog", { name: "Change your own role?" }),
+      screen.queryByRole("dialog", { name: "Change your own gateway role?" }),
     ).toBeNull();
   });
 
@@ -329,6 +387,7 @@ describe("AccessPage", () => {
     await waitFor(() => {
       expect(mocks.grant).toHaveBeenCalledWith("gateway-1", {
         role: "owner",
+        skipDefaultWorkspaceBootstrap: false,
         username: "dana",
       });
     });
@@ -358,22 +417,81 @@ describe("AccessPage", () => {
     await waitFor(() => {
       expect(mocks.grant).toHaveBeenCalledWith("gateway-1", {
         role: "user",
+        skipDefaultWorkspaceBootstrap: false,
         subject: "sub-dana",
         username: "dana",
       });
     });
-    // The dialog stays open and shows the copyable workspace membership command.
+    // The dialog stays open with the default-workspace result and a collapsed
+    // advanced command for adding the user to another workspace.
+    const resultDialog = screen.getByRole("dialog", { name: "Access granted" });
+    expect(resultDialog.textContent).toContain(
+      "This user can now use the default workspace.",
+    );
+    const collapsedCommand = within(resultDialog).getByText(
+      /openshell workspace member add/u,
+    );
+    expect(collapsedCommand.closest("[hidden]")).toBeTruthy();
+    await user1.click(
+      within(resultDialog).getByRole("button", {
+        name: "Advanced: add to another workspace",
+      }),
+    );
     expect(
-      await screen.findByText(/openshell workspace member add/u),
+      within(resultDialog).getByText(/openshell workspace member add/u),
     ).toBeTruthy();
-    expect(screen.getByText(/--subject sub-dana/u)).toBeTruthy();
-    expect(screen.getByText(/WORKSPACE_NAME='default'/u)).toBeTruthy();
+    expect(within(resultDialog).getByText(/--subject sub-dana/u)).toBeTruthy();
+    expect(
+      within(resultDialog).getByText(/WORKSPACE_NAME='default'/u),
+    ).toBeTruthy();
+  });
+
+  it("allows a user grant to opt out of default-workspace membership", async () => {
+    const user1 = userEvent.setup();
+    mocks.search.mockResolvedValue([
+      { name: "Dana Scully", subject: "sub-dana", username: "dana" },
+    ]);
+    renderPage();
+    await screen.findByText("Olivia Owner");
+
+    await user1.click(screen.getByRole("button", { name: "Add users" }));
+    const dialog = screen.getByRole("dialog", { name: "Add users" });
+    await user1.click(
+      within(dialog).getByRole("combobox", {
+        name: "Search the identity directory",
+      }),
+    );
+    await user1.click(await screen.findByText(/Dana Scully/u));
+    await user1.click(within(dialog).getByRole("radio", { name: /User/u }));
+    const defaultWorkspace = within(dialog).getByRole("checkbox", {
+      name: "Automatically add this user to the default workspace",
+    });
+    expect((defaultWorkspace as HTMLInputElement).checked).toBe(true);
+    await user1.click(defaultWorkspace);
+    await user1.click(
+      within(dialog).getByRole("button", { name: "Grant access" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.grant).toHaveBeenCalledWith("gateway-1", {
+        role: "user",
+        skipDefaultWorkspaceBootstrap: true,
+        subject: "sub-dana",
+        username: "dana",
+      });
+    });
+    expect(
+      screen.getByText("Access granted without default-workspace access."),
+    ).toBeTruthy();
   });
 
   it("re-opens the workspace-access command from a row icon", async () => {
     const user1 = userEvent.setup();
     mocks.list.mockResolvedValue(
-      accessPage([creator, admin, user], ownerCapabilities),
+      accessPage([creator, admin, user], ownerCapabilities, [
+        "research",
+        "default",
+      ]),
     );
     mocks.search.mockResolvedValue([
       { name: "Uma User", subject: "sub-uma", username: "user1" },
@@ -392,8 +510,17 @@ describe("AccessPage", () => {
     await user1.click(
       screen.getByRole("button", { name: "Copy workspace access command" }),
     );
+    const commandDialog = screen.getByRole("dialog", {
+      name: "Add workspace access",
+    });
+    expect(commandDialog.textContent).toContain(
+      "Run this command to add this user to a workspace:",
+    );
+    expect(commandDialog.textContent).toContain(
+      "Available workspaces: default, research",
+    );
     expect(
-      await screen.findByText(/openshell workspace member add/u),
+      within(commandDialog).getByText(/openshell workspace member add/u),
     ).toBeTruthy();
     expect(screen.getByText(/--subject sub-uma/u)).toBeTruthy();
     expect(mocks.search).toHaveBeenCalledWith(
@@ -440,7 +567,7 @@ describe("AccessPage", () => {
       screen.queryByRole("button", { name: "Remove access: Uma User" }),
     ).toBeNull();
     expect(
-      screen.queryByRole("button", { name: "Change role: Uma User" }),
+      screen.queryByRole("button", { name: "Change gateway role: Uma User" }),
     ).toBeNull();
     // Role shows as plain text for viewers.
     expect(screen.getByText("User")).toBeTruthy();

@@ -32,6 +32,48 @@ func statusByType(conds []provisioningConditionJSON) map[string]string {
 	return out
 }
 
+func TestIsProvisioningConditionComplete(t *testing.T) {
+	tests := []struct {
+		name          string
+		conditions    *string
+		conditionType string
+		want          bool
+	}{
+		{name: "nil conditions", conditions: nil, conditionType: ConditionDefaultWorkspaceBootstrapReady, want: false},
+		{
+			name: "matching condition is complete",
+			conditions: condsJSON(t, provisioningConditionJSON{
+				Type: ConditionDefaultWorkspaceBootstrapReady, ConditionStatus: conditionStatusComplete,
+			}),
+			conditionType: ConditionDefaultWorkspaceBootstrapReady,
+			want:          true,
+		},
+		{
+			name: "matching condition is pending",
+			conditions: condsJSON(t, provisioningConditionJSON{
+				Type: ConditionDefaultWorkspaceBootstrapReady, ConditionStatus: conditionStatusPending,
+			}),
+			conditionType: ConditionDefaultWorkspaceBootstrapReady,
+			want:          false,
+		},
+		{
+			name: "other condition is complete",
+			conditions: condsJSON(t, provisioningConditionJSON{
+				Type: "GatewayHealthy", ConditionStatus: conditionStatusComplete,
+			}),
+			conditionType: ConditionDefaultWorkspaceBootstrapReady,
+			want:          false,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := IsProvisioningConditionComplete(test.conditions, test.conditionType); got != test.want {
+				t.Fatalf("IsProvisioningConditionComplete() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 // Verifies: PLAT-DATA-07.01, PLAT-DATA-07.03
 func TestMergeMonotonicProvisioningConditions(t *testing.T) {
 	tests := []struct {

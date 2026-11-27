@@ -21,9 +21,11 @@ var _ MappedNullable = &GatewayAccessList{}
 
 // GatewayAccessList struct for GatewayAccessList
 type GatewayAccessList struct {
-	Page         int32                     `json:"page"`
-	Size         int32                     `json:"size"`
-	Total        int32                     `json:"total"`
+	Page  int32 `json:"page"`
+	Size  int32 `json:"size"`
+	Total int32 `json:"total"`
+	// All workspace names on the gateway, sorted alphabetically
+	Workspaces   []string                  `json:"workspaces"`
 	Capabilities GatewayAccessCapabilities `json:"capabilities"`
 	Items        []GatewayAccessListItem   `json:"items"`
 }
@@ -34,11 +36,12 @@ type _GatewayAccessList GatewayAccessList
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGatewayAccessList(page int32, size int32, total int32, capabilities GatewayAccessCapabilities, items []GatewayAccessListItem) *GatewayAccessList {
+func NewGatewayAccessList(page int32, size int32, total int32, workspaces []string, capabilities GatewayAccessCapabilities, items []GatewayAccessListItem) *GatewayAccessList {
 	this := GatewayAccessList{}
 	this.Page = page
 	this.Size = size
 	this.Total = total
+	this.Workspaces = workspaces
 	this.Capabilities = capabilities
 	this.Items = items
 	return &this
@@ -124,6 +127,30 @@ func (o *GatewayAccessList) SetTotal(v int32) {
 	o.Total = v
 }
 
+// GetWorkspaces returns the Workspaces field value
+func (o *GatewayAccessList) GetWorkspaces() []string {
+	if o == nil {
+		var ret []string
+		return ret
+	}
+
+	return o.Workspaces
+}
+
+// GetWorkspacesOk returns a tuple with the Workspaces field value
+// and a boolean to check if the value has been set.
+func (o *GatewayAccessList) GetWorkspacesOk() ([]string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.Workspaces, true
+}
+
+// SetWorkspaces sets field value
+func (o *GatewayAccessList) SetWorkspaces(v []string) {
+	o.Workspaces = v
+}
+
 // GetCapabilities returns the Capabilities field value
 func (o *GatewayAccessList) GetCapabilities() GatewayAccessCapabilities {
 	if o == nil {
@@ -185,6 +212,7 @@ func (o GatewayAccessList) ToMap() (map[string]interface{}, error) {
 	toSerialize["page"] = o.Page
 	toSerialize["size"] = o.Size
 	toSerialize["total"] = o.Total
+	toSerialize["workspaces"] = o.Workspaces
 	toSerialize["capabilities"] = o.Capabilities
 	toSerialize["items"] = o.Items
 	return toSerialize, nil
@@ -198,6 +226,7 @@ func (o *GatewayAccessList) UnmarshalJSON(data []byte) (err error) {
 		"page",
 		"size",
 		"total",
+		"workspaces",
 		"capabilities",
 		"items",
 	}

@@ -27,6 +27,7 @@ type DirectoryResolver interface {
 	// Resolve returns the realm user for an exact username. found is false when
 	// no such user exists in the realm.
 	Resolve(ctx context.Context, username string) (user DirectoryUser, found bool, err error)
+	ResolveMany(ctx context.Context, usernames []string) ([]DirectoryUser, error)
 }
 
 // ErrDirectoryUnavailable is returned by the unconfigured resolver so callers
@@ -73,4 +74,8 @@ func (unconfiguredResolver) Search(context.Context, string, int) ([]DirectoryUse
 
 func (unconfiguredResolver) Resolve(context.Context, string) (DirectoryUser, bool, error) {
 	return DirectoryUser{}, false, ErrDirectoryUnavailable
+}
+
+func (unconfiguredResolver) ResolveMany(context.Context, []string) ([]DirectoryUser, error) {
+	return nil, ErrDirectoryUnavailable
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/defaultWorkspaceBootstrap"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	trexerrors "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
@@ -87,6 +89,148 @@ func TestGatewayEndpointNormalizesGRPCSchemesForOpenShell(t *testing.T) {
 				t.Fatalf("gatewayEndpoint(%q) = %q, want %q", test.in, got, test.want)
 			}
 		})
+	}
+}
+
+func TestCreateBootstrapsDefaultWorkspaceForOpenShellUsersOnly(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		role string
+		want bool
+	}{
+		{name: "user", role: RoleUser, want: true},
+		{name: "admin", role: RoleAdmin, want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dao := newMemoryDAO()
+			kc := &fakeKeycloak{configured: true}
+			bindings := testBindings("creator", "gateway:owner")
+			bootstrap := &fakeDefaultWorkspaceBootstrap{}
+			svc := NewService(dao, fakeGateway{gateway: testGateway()}, bindings, kc, bootstrap, db.NewNoOpLockFactory())
+			svc.(*service).now = func() time.Time { return time.Now().UTC() }
+
+			result, problem := svc.Create(t.Context(), "gateway-id", "creator", CreateInput{Name: "bot-" + test.name, Role: test.role})
+			if problem != nil {
+				t.Fatalf("Create() problem = %#v", problem)
+			}
+			if called := bootstrap.input != (defaultWorkspaceBootstrap.Input{}); called != test.want {
+				t.Fatalf("bootstrap called = %v, want %v; input = %#v", called, test.want, bootstrap.input)
+			}
+			if test.want {
+				if bootstrap.input.GatewayID != "gateway-id" || bootstrap.input.GatewayNamespace != testGateway().Namespace ||
+					bootstrap.input.GatewayEndpoint != "https://gateway.example:443" ||
+					bootstrap.input.Issuer != "https://issuer.example/realms/hypershell" ||
+					bootstrap.input.GatewayClientID != "gateway-client" || bootstrap.input.Subject != "subject-id" ||
+					bootstrap.input.SubjectType != defaultWorkspaceBootstrap.SubjectTypeServiceAccount ||
+					bootstrap.input.Role != "user" || result.Account.Status != StatusReady {
+					t.Fatalf("bootstrap input = %#v, account = %#v", bootstrap.input, result.Account)
+				}
+			}
+		})
+	}
+}
+
+func TestCreateCleansUpWhenDefaultWorkspaceBootstrapFails(t *testing.T) {
+	dao := newMemoryDAO()
+	kc := &fakeKeycloak{configured: true}
+	bindings := testBindings("creator", "gateway:owner")
+	bootstrap := &fakeDefaultWorkspaceBootstrap{problem: &defaultWorkspaceBootstrap.APIError{
+		Status: http.StatusServiceUnavailable, Code: "default_workspace_bootstrap_failed", Message: "failed",
+	}}
+	svc := NewService(dao, fakeGateway{gateway: testGateway()}, bindings, kc, bootstrap, db.NewNoOpLockFactory())
+
+	_, problem := svc.Create(t.Context(), "gateway-id", "creator", CreateInput{Name: "bot", Role: RoleUser})
+	if problem == nil || problem.Status != http.StatusServiceUnavailable || problem.Code != "default_workspace_bootstrap_failed" {
+		t.Fatalf("Create() problem = %#v", problem)
+	}
+	if len(dao.items) != 0 {
+		t.Fatalf("persisted accounts after bootstrap failure = %#v", dao.items)
+	}
+	if kc.lastSpec.ClientID == "" {
+		t.Fatal("Keycloak was not provisioned before bootstrap")
+	}
+}
+
+func TestCreateCanSkipDefaultWorkspaceBootstrap(t *testing.T) {
+	dao := newMemoryDAO()
+	kc := &fakeKeycloak{configured: true}
+	bindings := testBindings("creator", "gateway:owner")
+	bootstrap := &fakeDefaultWorkspaceBootstrap{problem: &defaultWorkspaceBootstrap.APIError{
+		Status: http.StatusServiceUnavailable, Code: "default_workspace_bootstrap_failed", Message: "failed",
+	}}
+	svc := NewService(dao, fakeGateway{gateway: testGateway()}, bindings, kc, bootstrap, db.NewNoOpLockFactory())
+	svc.(*service).now = func() time.Time { return time.Now().UTC() }
+
+	result, problem := svc.Create(t.Context(), "gateway-id", "creator", CreateInput{
+		Name: "bot", Role: RoleUser, SkipDefaultWorkspaceBootstrap: true,
+	})
+	if problem != nil {
+		t.Fatalf("Create() problem = %#v", problem)
+	}
+	if bootstrap.input != (defaultWorkspaceBootstrap.Input{}) {
+		t.Fatalf("bootstrap input = %#v, want no call", bootstrap.input)
+	}
+	if result.Account.Status != StatusReady {
+		t.Fatalf("account status = %q, want %q", result.Account.Status, StatusReady)
+	}
+}
+
+func TestListEnrichesWorkspaceVisibilityForUserAccountsOnly(t *testing.T) {
+	dao := newMemoryDAO()
+	now := time.Now().UTC()
+	dao.seed(
+		&OpenShellGatewayServiceAccount{GatewayID: "gateway-id", Name: "admin", CreatedByUserID: "creator", Status: StatusReady, Role: RoleAdmin, CredentialType: CredentialTypeClientSecret, Subject: "sub-admin", ExpiresAt: now.Add(time.Hour)},
+		&OpenShellGatewayServiceAccount{GatewayID: "gateway-id", Name: "mine", CreatedByUserID: "creator", Status: StatusReady, Role: RoleUser, CredentialType: CredentialTypeClientSecret, Subject: "sub-a", ExpiresAt: now.Add(time.Hour)},
+		&OpenShellGatewayServiceAccount{GatewayID: "gateway-id", Name: "unassigned", CreatedByUserID: "creator", Status: StatusReady, Role: RoleUser, CredentialType: CredentialTypeClientSecret, Subject: "sub-b", ExpiresAt: now.Add(time.Hour)},
+	)
+	bootstrap := &fakeDefaultWorkspaceBootstrap{memberships: []defaultWorkspaceBootstrap.WorkspaceMembership{
+		{Workspace: "default", Subject: "sub-a"},
+		{Workspace: "billing", Subject: "sub-a"},
+		{Workspace: "other-gateway", Subject: "sub-admin"},
+	}}
+	bindings := testBindings("owner", "gateway:owner")
+	svc := NewService(dao, fakeGateway{gateway: testGateway()}, bindings, &fakeKeycloak{configured: true}, bootstrap, db.NewNoOpLockFactory())
+
+	items, _, _, problem := svc.List(t.Context(), "gateway-id", "owner", ListOptions{Page: 1, Size: 20, Sort: "created_at", Order: "asc"})
+	if problem != nil {
+		t.Fatalf("List() problem = %#v", problem)
+	}
+	workspacesByName := make(map[string][]string, len(items))
+	for _, item := range items {
+		workspacesByName[item.Name] = item.Workspaces
+	}
+	if got := workspacesByName["admin"]; len(got) != 0 {
+		t.Fatalf("admin workspaces = %#v, want none", got)
+	}
+	if got := workspacesByName["mine"]; !slices.Equal(got, []string{"billing", "default"}) {
+		t.Fatalf("user workspaces = %#v, want billing and default", got)
+	}
+	if got := workspacesByName["unassigned"]; len(got) != 0 {
+		t.Fatalf("unassigned user workspaces = %#v, want none", got)
+	}
+}
+
+func TestCreateSkipsDefaultWorkspaceBootstrapForLegacyGateway(t *testing.T) {
+	dao := newMemoryDAO()
+	kc := &fakeKeycloak{configured: true}
+	bindings := testBindings("creator", "gateway:owner")
+	bootstrap := &fakeDefaultWorkspaceBootstrap{problem: &defaultWorkspaceBootstrap.APIError{
+		Status: http.StatusServiceUnavailable, Code: "default_workspace_bootstrap_failed", Message: "failed",
+	}}
+	gateway := testGateway()
+	gateway.ProvisioningConditions = nil
+	svc := NewService(dao, fakeGateway{gateway: gateway}, bindings, kc, bootstrap, db.NewNoOpLockFactory())
+	svc.(*service).now = func() time.Time { return time.Now().UTC() }
+
+	result, problem := svc.Create(t.Context(), "gateway-id", "creator", CreateInput{Name: "bot", Role: RoleUser})
+	if problem != nil {
+		t.Fatalf("Create() problem = %#v", problem)
+	}
+	if bootstrap.input != (defaultWorkspaceBootstrap.Input{}) {
+		t.Fatalf("bootstrap input = %#v, want no call", bootstrap.input)
+	}
+	if result.Account.Status != StatusReady {
+		t.Fatalf("account status = %q, want %q", result.Account.Status, StatusReady)
 	}
 }
 
@@ -880,6 +1024,9 @@ func TestReconcileDeletesKeycloakClientsWithoutAResource(t *testing.T) {
 		configured: true,
 		managedClients: []ManagedClient{{
 			UUID: "orphan-uuid", GatewayID: "gateway-id", ServiceAccountID: "missing-account",
+		}, {
+			UUID: "bootstrap-uuid", GatewayID: "gateway-id",
+			ServiceAccountID: defaultWorkspaceBootstrapAdminServiceAccountID,
 		}},
 	}
 	service := newTestService(dao, kc, testBindings("creator", "gateway:viewer"), time.Now().UTC())
@@ -1175,7 +1322,7 @@ func gatewayWithoutOIDC() *gateways.Gateway {
 }
 
 func newTestService(dao *memoryDAO, kc *fakeKeycloak, bindings fakeBindings, now time.Time) Service {
-	result := NewService(dao, fakeGateway{gateway: testGateway()}, bindings, kc, db.NewNoOpLockFactory())
+	result := NewService(dao, fakeGateway{gateway: testGateway()}, bindings, kc, &fakeDefaultWorkspaceBootstrap{}, db.NewNoOpLockFactory())
 	result.(*service).now = func() time.Time { return now }
 	return result
 }
@@ -1183,15 +1330,38 @@ func newTestService(dao *memoryDAO, kc *fakeKeycloak, bindings fakeBindings, now
 // newTestServiceWith builds a service with an explicit gateway lookup and lock
 // factory so tests can inject transient/404 gateway failures or count locking.
 func newTestServiceWith(dao *memoryDAO, kc ServiceAccountProvisioner, bindings fakeBindings, now time.Time, gateway GatewayLookup, lockFactory db.LockFactory) Service {
-	result := NewService(dao, gateway, bindings, kc, lockFactory)
+	result := NewService(dao, gateway, bindings, kc, &fakeDefaultWorkspaceBootstrap{}, lockFactory)
 	result.(*service).now = func() time.Time { return now }
 	return result
+}
+
+type fakeDefaultWorkspaceBootstrap struct {
+	problem     *defaultWorkspaceBootstrap.APIError
+	input       defaultWorkspaceBootstrap.Input
+	memberships []defaultWorkspaceBootstrap.WorkspaceMembership
+	listInput   defaultWorkspaceBootstrap.Input
+	listProblem *defaultWorkspaceBootstrap.APIError
+}
+
+func (f *fakeDefaultWorkspaceBootstrap) Bootstrap(_ context.Context, input defaultWorkspaceBootstrap.Input) *defaultWorkspaceBootstrap.APIError {
+	f.input = input
+	return f.problem
+}
+
+func (f *fakeDefaultWorkspaceBootstrap) ListWorkspaceMemberships(_ context.Context, input defaultWorkspaceBootstrap.Input) ([]defaultWorkspaceBootstrap.WorkspaceMembership, *defaultWorkspaceBootstrap.APIError) {
+	f.listInput = input
+	return f.memberships, f.listProblem
+}
+
+func (f *fakeDefaultWorkspaceBootstrap) ListWorkspaceVisibility(_ context.Context, _ defaultWorkspaceBootstrap.Input) (defaultWorkspaceBootstrap.WorkspaceVisibility, *defaultWorkspaceBootstrap.APIError) {
+	return defaultWorkspaceBootstrap.WorkspaceVisibility{Workspaces: []string{"default"}, Memberships: f.memberships}, f.listProblem
 }
 
 func testGateway() *gateways.Gateway {
 	oidc, _ := json.Marshal(GatewayOIDC{Issuer: "https://issuer.example/realms/hypershell", ClientID: "gateway-client", Audience: "gateway-client"})
 	phase, status, route := "Running", "Healthy", "grpcs://gateway.example:443"
-	gateway := &gateways.Gateway{Name: "gateway", Phase: &phase, Status: &status, RouteAddress: &route, Oidc: stringPointer(string(oidc))}
+	conditions := `[{"type":"DefaultWorkspaceBootstrapReady","condition_status":"Complete"}]`
+	gateway := &gateways.Gateway{Name: "gateway", Phase: &phase, Status: &status, RouteAddress: &route, Oidc: stringPointer(string(oidc)), ProvisioningConditions: &conditions}
 	gateway.ID = "gateway-id"
 	return gateway
 }

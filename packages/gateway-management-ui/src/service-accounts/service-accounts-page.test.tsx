@@ -25,6 +25,7 @@ const account: OpenShellGatewayServiceAccountRecord = {
   status: "ready",
   subject: "service-account-subject",
   updatedAt: "2026-08-21T12:00:00Z",
+  workspaces: [],
 };
 const connection = {
   accessTokenLifetimeSeconds: 300,
@@ -141,6 +142,7 @@ describe("ServiceAccountsPage", () => {
     renderPage();
 
     expect(await screen.findByText("deploy-bot")).toBeTruthy();
+    expect(screen.getByText("All workspaces")).toBeTruthy();
     await user.click(
       screen.getByRole("button", { name: "View account details" }),
     );
@@ -168,6 +170,108 @@ describe("ServiceAccountsPage", () => {
         );
       },
       { timeout: 1_000 },
+    );
+  });
+
+  it("renders workspace memberships for user service accounts only", async () => {
+    mocks.list.mockResolvedValue(
+      page([
+        { ...account, name: "admin-bot" },
+        {
+          ...account,
+          id: "account-2",
+          name: "user-bot",
+          role: "openshell-user",
+          workspaces: ["billing", "default"],
+        },
+      ]),
+    );
+    renderPage();
+
+    expect(await screen.findByText("admin-bot")).toBeTruthy();
+    expect(screen.getByText("user-bot")).toBeTruthy();
+    expect(screen.getByText("All workspaces")).toBeTruthy();
+    expect(
+      screen.getAllByRole("listitem").map((item) => item.textContent),
+    ).toEqual(["billing", "default"]);
+    expect(screen.queryByText("None")).toBeNull();
+    expect(
+      screen.getAllByRole("columnheader").map((header) => header.textContent),
+    ).toEqual([
+      "Service account name",
+      "OpenShell role",
+      "Status",
+      "Expiration",
+      "Workspaces",
+      "Actions",
+    ]);
+    const expectedWidths: Record<string, string> = {
+      "Service account name": "25",
+      Status: "15",
+      Workspaces: "50",
+    };
+    Object.entries(expectedWidths).forEach(([name, width]) => {
+      expect(screen.getByRole("columnheader", { name }).className).toContain(
+        `pf-m-width-${width}`,
+      );
+    });
+  });
+
+  it("allows a user service account to opt out of default-workspace membership", async () => {
+    const userAccount = { ...account, role: "openshell-user" as const };
+    mocks.create.mockResolvedValue({
+      credential: { ...connection, clientSecret: "literal-client-secret" },
+      serviceAccount: userAccount,
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("deploy-bot");
+
+    await user.click(
+      screen.getByRole("button", { name: "Create service account" }),
+    );
+    const createDialog = screen.getByRole("dialog", {
+      name: "Create service account",
+    });
+    await user.type(
+      within(createDialog).getByRole("textbox", {
+        name: "Service account name",
+      }),
+      "release-bot",
+    );
+    const defaultWorkspace = within(createDialog).getByRole("checkbox", {
+      name: "Automatically add this service account to the default workspace",
+    });
+    const roleButton = within(createDialog).getByRole("button", {
+      name: "OpenShell role",
+    });
+    expect(
+      roleButton.compareDocumentPosition(defaultWorkspace) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect((defaultWorkspace as HTMLInputElement).checked).toBe(true);
+    await user.click(defaultWorkspace);
+    await user.click(
+      within(createDialog).getByRole("button", {
+        name: "Create service account",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.create).toHaveBeenCalledWith(
+        "gateway-1",
+        expect.objectContaining({
+          name: "release-bot",
+          role: "openshell-user",
+          skipDefaultWorkspaceBootstrap: true,
+        }),
+      );
+    });
+    const setupDialog = await screen.findByRole("dialog", {
+      name: "Set up deploy-bot",
+    });
+    expect(setupDialog.textContent).toContain(
+      "Service account created without default-workspace access.",
     );
   });
 
@@ -200,7 +304,7 @@ describe("ServiceAccountsPage", () => {
     );
     expect(
       screen.getByText(
-        "Can authenticate as openshell-user. A gateway administrator must separately add its subject to each workspace it needs.",
+        "Can authenticate as openshell-user. Choose whether to add it to the default workspace.",
       ),
     ).toBeTruthy();
     const adminDescription = screen.getByText(
@@ -235,6 +339,7 @@ describe("ServiceAccountsPage", () => {
           description: "Publishes releases",
           name: "release-bot",
           role: "openshell-admin",
+          skipDefaultWorkspaceBootstrap: false,
         }),
       );
     });
@@ -527,9 +632,16 @@ describe("ServiceAccountsPage", () => {
     expect(setupDialog.textContent).toContain(
       "This stable ID is the JWT subject (sub).",
     );
+    expect(setupDialog.textContent).toContain(
+      "Service account created. It can now use the default workspace.",
+    );
+    const collapsedCommand = setupDialog.querySelector("[hidden]");
+    expect(collapsedCommand?.textContent).toContain(
+      "openshell workspace member add",
+    );
     await user.click(
       within(setupDialog).getByRole("button", {
-        name: "Grant workspace access",
+        name: "Advanced: add to another workspace",
       }),
     );
     expect(setupDialog.textContent).toContain("openshell workspace member add");

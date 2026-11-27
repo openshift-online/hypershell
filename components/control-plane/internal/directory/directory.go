@@ -133,6 +133,24 @@ func (p *Projection) Resolve(username string) (keycloak.RealmUser, bool) {
 	return keycloak.RealmUser{}, false
 }
 
+func (p *Projection) ResolveMany(usernames []string) []keycloak.RealmUser {
+	out := make([]keycloak.RealmUser, 0, len(usernames))
+	seen := make(map[string]struct{}, len(usernames))
+	for _, username := range usernames {
+		u, found := p.Resolve(username)
+		if !found {
+			continue
+		}
+		key := strings.ToLower(u.Username)
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, u)
+	}
+	return out
+}
+
 // Server adapts a Projection to the gRPC DirectoryService.
 type Server struct {
 	pb.UnimplementedDirectoryServiceServer
@@ -159,6 +177,21 @@ func (s *Server) ResolveUser(_ context.Context, req *pb.ResolveUserRequest) (*pb
 		return &pb.ResolveUserResponse{Found: false}, nil
 	}
 	return &pb.ResolveUserResponse{Found: true, User: toProto(u)}, nil
+}
+
+func (s *Server) ResolveUsers(_ context.Context, req *pb.ResolveUsersRequest) (*pb.ResolveUsersResponse, error) {
+	if len(req.GetUsernames()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one username is required")
+	}
+	if len(req.GetUsernames()) > 100 {
+		return nil, status.Error(codes.InvalidArgument, "too many usernames")
+	}
+	users := s.projection.ResolveMany(req.GetUsernames())
+	response := &pb.ResolveUsersResponse{Users: make([]*pb.DirectoryUser, 0, len(users))}
+	for _, u := range users {
+		response.Users = append(response.Users, toProto(u))
+	}
+	return response, nil
 }
 
 func toProto(u keycloak.RealmUser) *pb.DirectoryUser {

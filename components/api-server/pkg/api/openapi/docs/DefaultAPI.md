@@ -4172,7 +4172,7 @@ Name | Type | Description  | Notes
 
 ## ListGatewayAccess
 
-> GatewayAccessList ListGatewayAccess(ctx, gatewayId).Page(page).Size(size).Role(role).Search(search).Sort(sort).Order(order).Execute()
+> GatewayAccessList ListGatewayAccess(ctx, gatewayId).Page(page).Size(size).Role(role).Search(search).Workspace(workspace).Sort(sort).Order(order).Execute()
 
 List access grants on a gateway
 
@@ -4194,12 +4194,13 @@ func main() {
 	size := int32(56) // int32 | Maximum number of records to return (optional) (default to 100)
 	role := openapiclient.GatewayAccessRole("owner") // GatewayAccessRole | Filter by console role tier (optional)
 	search := "search_example" // string | Specifies the search criteria (optional)
+	workspace := "workspace_example" // string | Filter rows to identities with access to a gateway workspace (optional)
 	sort := "sort_example" // string |  (optional) (default to "created_at")
 	order := "order_example" // string |  (optional) (default to "desc")
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
-	resp, r, err := apiClient.DefaultAPI.ListGatewayAccess(context.Background(), gatewayId).Page(page).Size(size).Role(role).Search(search).Sort(sort).Order(order).Execute()
+	resp, r, err := apiClient.DefaultAPI.ListGatewayAccess(context.Background(), gatewayId).Page(page).Size(size).Role(role).Search(search).Workspace(workspace).Sort(sort).Order(order).Execute()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListGatewayAccess``: %v\n", err)
 		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
@@ -4229,6 +4230,7 @@ Name | Type | Description  | Notes
  **size** | **int32** | Maximum number of records to return | [default to 100]
  **role** | [**GatewayAccessRole**](GatewayAccessRole.md) | Filter by console role tier |
  **search** | **string** | Specifies the search criteria |
+ **workspace** | **string** | Filter rows to identities with access to a gateway workspace |
  **sort** | **string** |  | [default to &quot;created_at&quot;]
  **order** | **string** |  | [default to &quot;desc&quot;]
 

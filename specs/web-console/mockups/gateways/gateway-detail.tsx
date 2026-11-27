@@ -8,6 +8,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   CardBody,
   CardHeader,
   CardTitle,
@@ -30,6 +31,8 @@ import {
   HelperText,
   HelperTextItem,
   Label,
+  List,
+  ListItem,
   MenuToggle,
   Modal,
   ModalBody,
@@ -122,6 +125,7 @@ const accessGrants = [
     role: "Owner",
     subject: "00000000-1111-2222-3333-444444444444",
     username: "kim-developer",
+    workspaces: [],
   },
   {
     grantedAt: "Oct 18, 2026, 11:05 AM",
@@ -129,6 +133,7 @@ const accessGrants = [
     role: "Admin",
     subject: "11111111-2222-3333-4444-555555555555",
     username: "alex-operator",
+    workspaces: [],
   },
   {
     grantedAt: "Oct 28, 2026, 4:40 PM",
@@ -136,7 +141,15 @@ const accessGrants = [
     role: "User",
     subject: "22222222-3333-4444-5555-666666666666",
     username: "jordan-automation",
+    workspaces: ["default", "billing"],
   },
+];
+
+const availableWorkspaces = [
+  "billing",
+  "default",
+  "observability",
+  "payments-platform",
 ];
 
 const serviceAccounts = [
@@ -150,7 +163,7 @@ const serviceAccounts = [
     expiresSoon: false,
     subject: "11111111-2222-3333-4444-555555555555",
     status: "Ready",
-    workspaces: ["payments-platform"],
+    workspaces: [],
   },
   {
     clientId: "hs-sa-2222-MMMM",
@@ -165,6 +178,20 @@ const serviceAccounts = [
     workspaces: ["observability", "payments-platform"],
   },
 ];
+
+function MockWorkspaceList({ workspaces }: { workspaces: string[] }) {
+  return (
+    <List isPlain>
+      {[...workspaces]
+        .sort((workspace, nextWorkspace) =>
+          workspace.localeCompare(nextWorkspace),
+        )
+        .map((workspace) => (
+          <ListItem key={workspace}>{workspace}</ListItem>
+        ))}
+    </List>
+  );
+}
 
 const workspaceMembershipCommand = (subject: string, workspace: string) =>
   [
@@ -685,15 +712,28 @@ function AccessTab({
   isProvisioning = false,
   onOpenServiceAccounts,
   onOpenWorkspaceAccess,
+  workspaceFilter: initialWorkspaceFilter = "all",
 }: {
   isProvisioning?: boolean;
   onOpenServiceAccounts: () => void;
   onOpenWorkspaceAccess: (username: string) => void;
+  workspaceFilter?: string;
 }) {
   const [sortColumn, setSortColumn] = useState("grantedAt");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [workspaceFilter, setWorkspaceFilter] = useState(
+    initialWorkspaceFilter,
+  );
+  const [isWorkspaceFilterOpen, setIsWorkspaceFilterOpen] = useState(false);
   const columns = ["name", "username", "role", "grantedAt"];
   const activeSortIndex = Math.max(0, columns.indexOf(sortColumn));
+  const visibleAccessGrants =
+    workspaceFilter === "all"
+      ? accessGrants
+      : accessGrants.filter(
+          (grant) =>
+            grant.role !== "User" || grant.workspaces.includes(workspaceFilter),
+        );
   const getSortParams = (columnIndex: number) => ({
     columnIndex,
     onSort: (_event: unknown, _index: number, direction: "asc" | "desc") => {
@@ -751,13 +791,46 @@ function AccessTab({
                 <Select
                   isOpen={false}
                   onOpenChange={() => undefined}
-                  selected="All roles"
+                  selected="All gateway roles"
                   toggle={(toggleRef) => (
-                    <MenuToggle ref={toggleRef}>All roles</MenuToggle>
+                    <MenuToggle ref={toggleRef}>All gateway roles</MenuToggle>
                   )}
                 >
                   <SelectList>
-                    <SelectOption value="all">All roles</SelectOption>
+                    <SelectOption value="all">All gateway roles</SelectOption>
+                  </SelectList>
+                </Select>
+              </ToolbarItem>
+              <ToolbarItem>
+                <Select
+                  isOpen={isWorkspaceFilterOpen}
+                  onOpenChange={setIsWorkspaceFilterOpen}
+                  onSelect={(_event, selected) => {
+                    setWorkspaceFilter(selected as string);
+                    setIsWorkspaceFilterOpen(false);
+                  }}
+                  selected={workspaceFilter}
+                  toggle={(toggleRef) => (
+                    <MenuToggle
+                      isExpanded={isWorkspaceFilterOpen}
+                      onClick={() => {
+                        setIsWorkspaceFilterOpen((isOpen) => !isOpen);
+                      }}
+                      ref={toggleRef}
+                    >
+                      {workspaceFilter === "all"
+                        ? "All workspaces"
+                        : workspaceFilter}
+                    </MenuToggle>
+                  )}
+                >
+                  <SelectList>
+                    <SelectOption value="all">All workspaces</SelectOption>
+                    {availableWorkspaces.map((workspace) => (
+                      <SelectOption key={workspace} value={workspace}>
+                        {workspace}
+                      </SelectOption>
+                    ))}
                   </SelectList>
                 </Select>
               </ToolbarItem>
@@ -768,7 +841,10 @@ function AccessTab({
               </ToolbarItem>
             </ToolbarGroup>
             <ToolbarItem variant="pagination">
-              <MockPagination itemCount={accessGrants.length} variant="top" />
+              <MockPagination
+                itemCount={visibleAccessGrants.length}
+                variant="top"
+              />
             </ToolbarItem>
           </ToolbarContent>
         </Toolbar>
@@ -777,27 +853,25 @@ function AccessTab({
         <Table aria-label="Gateway access" variant="compact">
           <Thead>
             <Tr>
-              <Th sort={getSortParams(0)} width={25}>
+              <Th sort={getSortParams(0)} width={35}>
                 Name
               </Th>
               <Th sort={getSortParams(1)} width={25}>
                 User ID
               </Th>
-              <Th sort={getSortParams(2)} width={20}>
-                Role
+              <Th sort={getSortParams(2)} width={25}>
+                Gateway role
               </Th>
-              <Th sort={getSortParams(3)} width={20}>
-                Granted
-              </Th>
+              <Th width={50}>Workspaces</Th>
               <Th screenReaderText="Actions" />
             </Tr>
           </Thead>
           <Tbody>
-            {accessGrants.map((grant) => (
+            {visibleAccessGrants.map((grant) => (
               <Tr key={grant.username}>
                 <Td dataLabel="Name">{grant.name}</Td>
                 <Td dataLabel="User ID">{grant.username}</Td>
-                <Td dataLabel="Role">
+                <Td dataLabel="Gateway role">
                   <Flex
                     alignItems={{ default: "alignItemsCenter" }}
                     spaceItems={{ default: "spaceItemsSm" }}
@@ -821,9 +895,9 @@ function AccessTab({
                     </FlexItem>
                     {grant.role === "User" ? (
                       <FlexItem>
-                        <Tooltip content="View workspace access command">
+                        <Tooltip content="View add workspace access command">
                           <Button
-                            aria-label={`View workspace access command for ${grant.name}`}
+                            aria-label={`View add workspace access command for ${grant.name}`}
                             icon={<CodeIcon />}
                             onClick={() =>
                               onOpenWorkspaceAccess(grant.username)
@@ -835,7 +909,13 @@ function AccessTab({
                     ) : null}
                   </Flex>
                 </Td>
-                <Td dataLabel="Granted">{grant.grantedAt}</Td>
+                <Td dataLabel="Workspaces">
+                  {grant.role === "User" ? (
+                    <MockWorkspaceList workspaces={grant.workspaces} />
+                  ) : (
+                    "All workspaces"
+                  )}
+                </Td>
                 <Td isActionCell modifier="fitContent">
                   {grant.role === "Owner" ? (
                     <Tooltip content="A gateway must keep at least one owner.">
@@ -998,19 +1078,19 @@ function ServiceAccountsTab({
           <Thead>
             <Tr>
               <Th screenReaderText="Row expansion" />
-              <Th sort={getSortParams(0)} width={30}>
+              <Th sort={getSortParams(0)} width={25}>
                 Service account name
               </Th>
-              <Th width={10}>Setup</Th>
-              <Th sort={getSortParams(1)} width={15}>
+              <Th sort={getSortParams(1)} width={20}>
                 OpenShell role
               </Th>
               <Th sort={getSortParams(2)} width={15}>
                 Status
               </Th>
-              <Th sort={getSortParams(3)} width={30}>
+              <Th sort={getSortParams(3)} width={25}>
                 Expiration
               </Th>
+              <Th width={50}>Workspaces</Th>
               <Th screenReaderText="Actions" />
             </Tr>
           </Thead>
@@ -1032,18 +1112,6 @@ function ServiceAccountsTab({
                     }}
                   />
                   <Td dataLabel="Service account name">{account.name}</Td>
-                  <Td dataLabel="Setup">
-                    <Tooltip
-                      content={`Open setup instructions for ${account.name}`}
-                    >
-                      <Button
-                        aria-label={`Open setup instructions for ${account.name}`}
-                        icon={<CodeIcon />}
-                        onClick={() => onOpenSetupInstructions(account.name)}
-                        variant="plain"
-                      />
-                    </Tooltip>
-                  </Td>
                   <Td dataLabel="OpenShell role">{account.role}</Td>
                   <Td dataLabel="Status">
                     <HealthStatus
@@ -1054,6 +1122,13 @@ function ServiceAccountsTab({
                     />
                   </Td>
                   <Td dataLabel="Expiration">{account.expiration}</Td>
+                  <Td dataLabel="Workspaces">
+                    {account.role === "openshell-admin" ? (
+                      "All workspaces"
+                    ) : (
+                      <MockWorkspaceList workspaces={account.workspaces} />
+                    )}
+                  </Td>
                   <Td isActionCell modifier="fitContent">
                     <Dropdown
                       isOpen={openMenu === account.name}
@@ -1124,16 +1199,10 @@ function ServiceAccountsTab({
                               <StackItem>
                                 <Content component="p">
                                   This stable ID is the JWT subject (sub). Use
-                                  it to grant OpenShell workspace access.
+                                  it to add the account to another workspace.
                                 </Content>
                               </StackItem>
                             </Stack>
-                          </DescriptionListDescription>
-                        </DescriptionListGroup>
-                        <DescriptionListGroup>
-                          <DescriptionListTerm>Workspaces</DescriptionListTerm>
-                          <DescriptionListDescription>
-                            {account.workspaces.join(", ")}
                           </DescriptionListDescription>
                         </DescriptionListGroup>
                         <DescriptionListGroup>
@@ -1512,6 +1581,10 @@ function DetailDialog({
     useState("");
   const [isServiceAccountJwtExpanded, setIsServiceAccountJwtExpanded] =
     useState(false);
+  const [
+    isServiceAccountWorkspaceExpanded,
+    setIsServiceAccountWorkspaceExpanded,
+  ] = useState(false);
 
   if (modal === "rename-gateway") {
     return (
@@ -1598,6 +1671,49 @@ function DetailDialog({
                   </TextInputGroup>
                 </MenuToggle>
               </StackItem>
+              <StackItem>
+                <FormGroup fieldId="add-user-role" label="Role">
+                  <Stack hasGutter>
+                    <StackItem>
+                      <Radio
+                        id="add-user-role-user"
+                        isChecked
+                        label="User"
+                        name="add-user-role"
+                        value="user"
+                      />
+                    </StackItem>
+                    <StackItem>
+                      <Radio
+                        id="add-user-role-admin"
+                        label="Admin"
+                        name="add-user-role"
+                        value="admin"
+                      />
+                    </StackItem>
+                    <StackItem>
+                      <Radio
+                        id="add-user-role-owner"
+                        label="Owner"
+                        name="add-user-role"
+                        value="owner"
+                      />
+                    </StackItem>
+                  </Stack>
+                </FormGroup>
+              </StackItem>
+              <StackItem>
+                <Checkbox
+                  id="add-user-default-workspace"
+                  isChecked
+                  label="Automatically add this user to the default workspace"
+                />
+                <HelperText>
+                  <HelperTextItem>
+                    The default workspace is shared with other gateway users.
+                  </HelperTextItem>
+                </HelperText>
+              </StackItem>
             </Stack>
           </Form>
         </ModalBody>
@@ -1622,22 +1738,17 @@ function DetailDialog({
       : "";
     return (
       <Modal isOpen onClose={onClose} variant={ModalVariant.medium}>
-        <ModalHeader title="Grant workspace access" />
+        <ModalHeader title="Add workspace access" />
         <ModalBody>
           <Stack hasGutter>
             <StackItem>
               <Content component="p">
-                {grant?.name} has been added to payments-gateway, but they
-                cannot use it yet. Add them to a workspace inside the gateway
-                before they can sign in and run sandboxes.
+                Run this command to add this user to a workspace:
               </Content>
             </StackItem>
             <StackItem>
               <Content component="p">
-                You can add them in the gateway console or run this command in a
-                terminal. The command uses the default workspace; change{" "}
-                <code>WORKSPACE_NAME</code> if they should use a different
-                workspace.
+                Available workspaces: {availableWorkspaces.join(", ")}
               </Content>
             </StackItem>
             <StackItem>
@@ -1744,6 +1855,18 @@ function DetailDialog({
                 </FormGroup>
               </StackItem>
               <StackItem>
+                <Checkbox
+                  id="service-account-default-workspace"
+                  isChecked
+                  label="Automatically add this service account to the default workspace"
+                />
+                <HelperText>
+                  <HelperTextItem>
+                    The default workspace is shared with other gateway users.
+                  </HelperTextItem>
+                </HelperText>
+              </StackItem>
+              <StackItem>
                 <FormGroup
                   fieldId="service-account-expiration"
                   isRequired
@@ -1846,28 +1969,35 @@ function DetailDialog({
             {account.role === "openshell-user" ? (
               <StackItem>
                 <Title headingLevel="h3" size="md">
-                  Grant workspace access
+                  Default workspace access
                 </Title>
                 <Content component="p">
-                  {account.name} has been added to payments-gateway, but it
-                  cannot use the gateway yet. Add its principal subject to a
-                  workspace inside the gateway before it can run sandboxes.
+                  Service account created. It can now use the default workspace.
+                  The default workspace is shared with other gateway users.
                 </Content>
-                <Content component="p">
-                  You can add it in the gateway console or run this command in a
-                  terminal. The command uses the default workspace; change{" "}
-                  <code>WORKSPACE_NAME</code> if it should use a different
-                  workspace.
-                </Content>
-                <div className={styles.steps}>
-                  <CommandBlock
-                    copyAriaLabel={`Copy workspace access command for ${account.name}`}
-                    copyText={workspaceMembershipCommand(
-                      account.subject,
-                      "default",
-                    )}
-                  />
-                </div>
+                <ExpandableSection
+                  isExpanded={isServiceAccountWorkspaceExpanded}
+                  onToggle={(_event, expanded) => {
+                    setIsServiceAccountWorkspaceExpanded(expanded);
+                  }}
+                  toggleText="Advanced: add to another workspace"
+                  toggleWrapper="h3"
+                >
+                  <Content component="p">
+                    Run this command only if automatic default-workspace
+                    membership was skipped or the account needs another
+                    workspace.
+                  </Content>
+                  <div className={styles.steps}>
+                    <CommandBlock
+                      copyAriaLabel={`Copy workspace access command for ${account.name}`}
+                      copyText={workspaceMembershipCommand(
+                        account.subject,
+                        "default",
+                      )}
+                    />
+                  </div>
+                </ExpandableSection>
               </StackItem>
             ) : null}
             <StackItem>
@@ -1957,7 +2087,7 @@ function DetailDialog({
                     openshell-admin
                   </SelectOption>
                   <SelectOption
-                    description="Can authenticate as openshell-user. A gateway administrator must separately add its subject to each workspace it needs."
+                    description="Can authenticate as openshell-user and is added to the default workspace unless creation opts out."
                     isSelected={editServiceAccountRole === "openshell-user"}
                     value="openshell-user"
                   >
@@ -2058,6 +2188,7 @@ export function GatewayDetailContent({
   modal: initialModal,
   policyDrawer,
   policyMode = "audit",
+  workspaceFilter,
 }: {
   activeTab?: GatewayDetailTab;
   attention?: GatewayDetailAttention;
@@ -2065,6 +2196,7 @@ export function GatewayDetailContent({
   modal?: GatewayDetailModal;
   policyDrawer?: string;
   policyMode?: PolicyEnforcementMode;
+  workspaceFilter?: string;
 }) {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [modal, setModal] = useState(initialModal);
@@ -2204,6 +2336,7 @@ export function GatewayDetailContent({
                 setWorkspaceUsername(username);
                 setModal("workspace-access");
               }}
+              workspaceFilter={workspaceFilter}
             />
           </Tab>
           <Tab

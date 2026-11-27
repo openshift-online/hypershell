@@ -108,6 +108,8 @@ func (c *Client) Configured() bool {
 
 func (c *Client) issuer() string { return fmt.Sprintf("%s/realms/%s", c.serverURL, c.realm) }
 
+func (c *Client) Issuer() string { return c.issuer() }
+
 type kcClient struct {
 	ID                           string            `json:"id,omitempty"`
 	ClientID                     string            `json:"clientId"`
@@ -683,6 +685,33 @@ func (c *Client) listManagedClientsByScan(ctx context.Context, gatewayID string)
 		}
 	}
 	return out, nil
+}
+
+func (c *Client) GetManagedClient(ctx context.Context, clientID, gatewayID, serviceAccountID string) (*ManagedClient, error) {
+	clientUUID, err := c.clientUUID(ctx, clientID)
+	if err != nil {
+		return nil, err
+	}
+	if clientUUID == "" {
+		return nil, nil
+	}
+	client, err := c.getClient(ctx, clientUUID)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if client.Attributes[managedAttribute] != "true" ||
+		client.Attributes[gatewayIDAttribute] != gatewayID ||
+		client.Attributes[serviceAccountIDAttribute] != serviceAccountID {
+		return nil, ErrNotManaged
+	}
+	return &ManagedClient{
+		UUID: client.ID, ClientID: client.ClientID,
+		GatewayID:        client.Attributes[gatewayIDAttribute],
+		ServiceAccountID: client.Attributes[serviceAccountIDAttribute],
+	}, nil
 }
 
 // managedClientQuery builds the Keycloak attribute search expression. Keycloak

@@ -7,6 +7,7 @@ Name | Type | Description | Notes
 **Page** | **int32** |  |
 **Size** | **int32** |  |
 **Total** | **int32** |  |
+**Workspaces** | **[]string** | All workspace names on the gateway, sorted alphabetically |
 **Capabilities** | [**GatewayAccessCapabilities**](GatewayAccessCapabilities.md) |  |
 **Items** | [**[]GatewayAccessListItem**](GatewayAccessListItem.md) |  |
 
@@ -14,7 +15,7 @@ Name | Type | Description | Notes
 
 ### NewGatewayAccessList
 
-`func NewGatewayAccessList(page int32, size int32, total int32, capabilities GatewayAccessCapabilities, items []GatewayAccessListItem, ) *GatewayAccessList`
+`func NewGatewayAccessList(page int32, size int32, total int32, workspaces []string, capabilities GatewayAccessCapabilities, items []GatewayAccessListItem, ) *GatewayAccessList`
 
 NewGatewayAccessList instantiates a new GatewayAccessList object
 This constructor will assign default values to properties that have it defined,
@@ -87,6 +88,26 @@ and a boolean to check if the value has been set.
 `func (o *GatewayAccessList) SetTotal(v int32)`
 
 SetTotal sets Total field to given value.
+
+
+### GetWorkspaces
+
+`func (o *GatewayAccessList) GetWorkspaces() []string`
+
+GetWorkspaces returns the Workspaces field if non-nil, zero value otherwise.
+
+### GetWorkspacesOk
+
+`func (o *GatewayAccessList) GetWorkspacesOk() (*[]string, bool)`
+
+GetWorkspacesOk returns a tuple with the Workspaces field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetWorkspaces
+
+`func (o *GatewayAccessList) SetWorkspaces(v []string)`
+
+SetWorkspaces sets Workspaces field to given value.
 
 
 ### GetCapabilities

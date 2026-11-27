@@ -11,12 +11,13 @@ Name | Type | Description | Notes
 **Email** | Pointer to **NullableString** |  | [optional]
 **Role** | [**GatewayAccessRole**](GatewayAccessRole.md) |  |
 **GrantedAt** | **time.Time** |  |
+**Workspaces** | **[]string** | Gateway-scoped workspace names for user rows; empty for admin rows |
 
 ## Methods
 
 ### NewGatewayAccessListItem
 
-`func NewGatewayAccessListItem(roleBindingId string, userId string, username string, role GatewayAccessRole, grantedAt time.Time, ) *GatewayAccessListItem`
+`func NewGatewayAccessListItem(roleBindingId string, userId string, username string, role GatewayAccessRole, grantedAt time.Time, workspaces []string, ) *GatewayAccessListItem`
 
 NewGatewayAccessListItem instantiates a new GatewayAccessListItem object
 This constructor will assign default values to properties that have it defined,
@@ -199,6 +200,26 @@ and a boolean to check if the value has been set.
 `func (o *GatewayAccessListItem) SetGrantedAt(v time.Time)`
 
 SetGrantedAt sets GrantedAt field to given value.
+
+
+### GetWorkspaces
+
+`func (o *GatewayAccessListItem) GetWorkspaces() []string`
+
+GetWorkspaces returns the Workspaces field if non-nil, zero value otherwise.
+
+### GetWorkspacesOk
+
+`func (o *GatewayAccessListItem) GetWorkspacesOk() (*[]string, bool)`
+
+GetWorkspacesOk returns a tuple with the Workspaces field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetWorkspaces
+
+`func (o *GatewayAccessListItem) SetWorkspaces(v []string)`
+
+SetWorkspaces sets Workspaces field to given value.
 
 
 
