@@ -34,6 +34,21 @@ export type {
   UsageMetricTrendPoint,
   UsageSandboxLifetime,
 } from "./application/dashboard-types";
+export type {
+  CostAmountRow,
+  CostDashboardMetrics,
+  CostDashboardView,
+  CostGatewayRole,
+  CostGatewayRow,
+  CostMetricId,
+  CostMetricSourceId,
+  CostPlatformBreakdown,
+  CostPlatformSummary,
+  CostTrendPoint,
+  MyCostGatewayRow,
+  MyCostSummary,
+  MyCostWorkspaceRow,
+} from "./application/cost-dashboard-types";
 export { noopDashboardProbePublisher } from "./application/dashboard-probes";
 export {
   createDashboardOperations,
@@ -47,6 +62,8 @@ export {
   usageDashboardMetricsQueryKey,
   usageDashboardRefreshMilliseconds,
   adoptionDashboardMetricsQueryKey,
+  costDashboardMetricsQueryKey,
+  costDashboardRefreshMilliseconds,
 } from "./dashboard/dashboard-data";
 export { ResourceRefreshButton } from "./shared/resource-refresh-button";
 export {
@@ -77,3 +94,13 @@ export {
 export { useGetMetricsData } from "./pages/get-metrics-data";
 export { useGetUsageMetricsData } from "./pages/get-usage-metrics-data";
 export { messages as dashboardMessages } from "./messages";
+export {
+  CostDashboardPage,
+  type CostDashboardPageProps,
+} from "./pages/cost-dashboard-page";
+export { useGetCostMetricsData } from "./pages/get-cost-metrics-data";
+export { costMessages as costDashboardMessages } from "./cost-messages";
+export {
+  mockCostDashboardMetrics,
+  mockMyCostDashboardMetrics,
+} from "./fixtures/mock-cost-dashboard-metrics";

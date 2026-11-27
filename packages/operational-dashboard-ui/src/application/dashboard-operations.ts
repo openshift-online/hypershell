@@ -9,6 +9,7 @@ import type {
   OperationalDashboardMetrics,
   UsageDashboardMetrics,
 } from "./dashboard-types";
+import type { CostDashboardMetrics } from "./cost-dashboard-types";
 import type {
   DashboardProbe,
   DashboardProbePublisher,
@@ -70,7 +71,8 @@ function partialFailureProbe(
 }
 
 async function loadMetricsWithProbes<
-  Metrics extends OperationalDashboardMetrics | UsageDashboardMetrics,
+  Metrics extends
+    CostDashboardMetrics | OperationalDashboardMetrics | UsageDashboardMetrics,
 >(
   action: DashboardWorkflowAction,
   load: (context: DashboardInvocationContext) => Promise<Metrics>,
@@ -84,6 +86,7 @@ async function loadMetricsWithProbes<
   const context: DashboardInvocationContext = {
     correlationId,
     ...(options.isAdmin === undefined ? {} : { isAdmin: options.isAdmin }),
+    ...(options.costView === undefined ? {} : { costView: options.costView }),
     timeRange,
     ...(signal === undefined ? {} : { signal }),
   };
@@ -167,6 +170,23 @@ export function createDashboardOperations({
             );
           }
           return controlPlane.getUsageMetrics(context);
+        },
+        probes,
+        runtime,
+        signal,
+        timeRange,
+        options,
+      ),
+    getCostMetrics: (signal, timeRange = 7, options = {}) =>
+      loadMetricsWithProbes(
+        "get-cost-metrics",
+        (context) => {
+          if (!controlPlane.getCostMetrics) {
+            throw new Error(
+              "Dashboard control plane does not provide cost metrics",
+            );
+          }
+          return controlPlane.getCostMetrics(context);
         },
         probes,
         runtime,

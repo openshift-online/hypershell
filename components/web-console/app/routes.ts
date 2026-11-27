@@ -17,6 +17,7 @@ export default [
     route(routes.dashboardReliability, "./routes/dashboard-reliability.tsx"),
     route(routes.dashboardUsage, "./routes/dashboard-usage.tsx"),
     route(routes.dashboardAdoption, "./routes/dashboard-adoption.tsx"),
+    route(routes.dashboardCost, "./routes/dashboard-cost.tsx"),
     route(routes.gatewayList, "./routes/gateways.tsx"),
     route(routes.gatewayNew, "./routes/gateway-new.tsx"),
     route(routes.gatewayDetail, "./routes/gateway.tsx"),

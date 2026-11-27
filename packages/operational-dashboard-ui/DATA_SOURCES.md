@@ -466,6 +466,75 @@ These fields render a dash in their summary rows. They are not replaced with
 zero or hidden; whole-widget and chart unavailable states continue to render the
 localized metric-unavailable treatment.
 
+## Cost dashboard
+
+The cost dashboard (`/dashboard/cost`, `specs/web-console/cost-dashboard.spec.md`)
+loads through `useGetCostMetricsData` -> `dashboard.getCostMetrics` ->
+`fetchCostDashboardMetrics`. Administrators see the platform view and can switch
+to My cost; other users see only My cost. Every amount is a directional estimate:
+reserved CPU and memory multiplied by the deployment rate card. The rate card
+stays in the BFF; responses carry only `currency` and `rate_card_version`.
+
+| Source ID          | BFF route                                       | Metrics emitted                                                                             | Access           |
+| ------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------- | ---------------- |
+| `cost-summary`     | `GET /api/metrics/cost/summary?range=7\|30`     | `cost-total`, `cost-idle`, `cost-per-user`, `cost-per-gateway`, `cost-per-sandbox`          | `platform:admin` |
+| `cost-breakdown`   | `GET /api/metrics/cost/breakdown?range=7\|30`   | `cost-by-environment`, `cost-by-cluster`, `cost-by-resource-class`, `cost-by-billing-owner` | `platform:admin` |
+| `cost-gateways`    | `GET /api/metrics/cost/gateways?range=7\|30`    | `cost-top-gateways`                                                                         | `platform:admin` |
+| `my-cost-summary`  | `GET /api/metrics/cost/me/summary?range=7\|30`  | `my-cost-charged`, `my-cost-shared`, `my-cost-trend`                                        | signed in        |
+| `my-cost-gateways` | `GET /api/metrics/cost/me/gateways?range=7\|30` | `my-cost-by-gateway`, `my-cost-by-workspace`                                                | signed in        |
+
+### Inputs
+
+The BFF reads four hub recording rules from `COST_PROMETHEUS_URL` (default
+`PROMETHEUS_URL`). They hold quantities, never money:
+
+| Recording rule                                | Prometheus type | Labels                                            |
+| --------------------------------------------- | --------------- | ------------------------------------------------- |
+| `hypershell:cluster_cpu_allocatable:cores`    | Gauge           | `cluster`, `environment`, `provider`              |
+| `hypershell:cluster_memory_allocatable:bytes` | Gauge           | `cluster`, `environment`, `provider`              |
+| `hypershell:namespace_cpu_requests:cores`     | Gauge           | `cluster`, `environment`, `provider`, `namespace` |
+| `hypershell:namespace_memory_requests:bytes`  | Gauge           | `cluster`, `environment`, `provider`, `namespace` |
+
+`COST_CLUSTERS`, when set, adds a `cluster=~` selector to every query. Gateway
+inventory, billing owners, and roles come from the API server
+(`GET /api/hypershell/v1/gateways` and `.../gateways/{id}/access`). Workspace
+membership comes from `ext/workspace_memberships` and `ext/agent_workspaces`.
+Unused gateways reuse the WEB-USE-07 request counters from `PROMETHEUS_URL`.
+Active users reuse the adoption dashboard source.
+
+### Calculations
+
+| Metric ID                | Calculation                                                                                                                                    | Rate card fields                                     |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `cost-total`             | Per cluster `max(capacity cost, requested cost) + fixed_monthly`, summed, scaled to 730 hours                                                  | `defaults`, `providers`, `clusters`, `fixed_monthly` |
+| `cost-idle`              | Per cluster `max(0, capacity cost - requested cost)`; the unused-gateway line sums gateways with no qualifying requests in the range           | cpu and memory rates                                 |
+| `cost-per-user`          | `cost-total` / active users in the range                                                                                                       | as `cost-total`                                      |
+| `cost-per-gateway`       | Sum of gateway cost / current gateway count                                                                                                    | cpu and memory rates                                 |
+| `cost-per-sandbox`       | Sum of workspace namespace cost / mean active sandboxes                                                                                        | cpu and memory rates                                 |
+| `cost-by-environment`    | `cost-total` grouped by `environment`, with daily series                                                                                       | as `cost-total`                                      |
+| `cost-by-cluster`        | `cost-total` grouped by `cluster`, with daily series                                                                                           | as `cost-total`                                      |
+| `cost-by-resource-class` | Gateways (server namespaces plus deleted `openshell-*`), sandboxes (workspace namespaces), platform overhead (other requests plus fixed), idle | as `cost-total`                                      |
+| `cost-by-billing-owner`  | Gateway cost grouped by billing owner: the current `gateway:owner` binding with the earliest `created_at`, ties by lowest binding ID           | cpu and memory rates                                 |
+| `cost-top-gateways`      | Gateway cost (`openshell-<id>` plus managed workspace namespaces), highest first                                                               | cpu and memory rates                                 |
+| `my-cost-charged`        | Sum of gateway cost where the caller is the billing owner, with a daily series                                                                 | cpu and memory rates                                 |
+| `my-cost-shared`         | Sum of gateway cost for gateways the caller can access but is not billing owner of                                                             | cpu and memory rates                                 |
+| `my-cost-by-gateway`     | One row per accessible gateway with the caller's role and billing owner                                                                        | cpu and memory rates                                 |
+| `my-cost-by-workspace`   | Workspace namespace cost; owners see every workspace, others only workspaces they are members of                                               | cpu and memory rates                                 |
+
+Cluster and namespace cost integrate the hourly rule values with
+`sum_over_time(rule[<N>h:1h])`, multiply core-hours by `cpu_core_hour` and
+GiB-hours by `memory_gib_hour`, and scale by `730 / covered hours`. A cluster
+with no resolvable rate is listed in `unpriced_clusters` and excluded, never
+priced at zero. Missing days in daily series stay `null`.
+
+### Refresh and failure semantics
+
+Cost metrics refresh every 15 minutes (`costDashboardRefreshMilliseconds`). Each
+source fails independently and is listed in `failedSources`; the UI keeps the
+last good value of a failed source. With no rate card the routes answer
+`{status: "not-configured"}` and every widget shows the not-configured state,
+never `$0`. An invalid rate card fails `/health/ready` and the routes answer 503.
+
 ## Adding a new source
 
 1. Expose a same-origin BFF route (or reuse an existing API route) for browser access.

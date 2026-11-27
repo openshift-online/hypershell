@@ -20,6 +20,8 @@ import {
   registerAuth,
 } from "./auth.js";
 import { queryAuthorizedGatewayInventory } from "./authorized-gateway-metrics.js";
+import { createRateCardSource, type RateCardSource } from "./cost-rate-card.js";
+import { registerCostRoutes } from "./cost-routes.js";
 import { hasDashboardAdminRole } from "./roles.js";
 import {
   browserRuntimeConfig,
@@ -283,6 +285,7 @@ function outcomeForStatus(statusCode: number): ProxyOutcome {
 export async function buildApp(
   config: ServerConfig,
   tracing: BffTracing = disabledTracing,
+  rateCards: RateCardSource = createRateCardSource(config.costRateCardFile),
 ): Promise<FastifyInstance> {
   const indexPath = path.join(config.staticRoot, "index.html");
 
@@ -347,6 +350,7 @@ export async function buildApp(
   versionRefreshTimer.unref();
   app.addHook("onClose", (_instance, done) => {
     clearInterval(versionRefreshTimer);
+    rateCards.close();
     done();
   });
 
@@ -509,6 +513,12 @@ export async function buildApp(
     // best-effort and must never gate serving (WEB-TRC-06) -- but the bounded
     // delivery-health snapshot rides along so span-export and relay losses are
     // observable rather than silently swallowed.
+    // An invalid cost rate card fails readiness (WEB-COST-03) so a bad
+    // ConfigMap is caught at rollout instead of serving wrong estimates.
+    if (rateCards.current().status === "invalid") {
+      reply.code(503);
+      return { status: "not-ready", reason: "cost-rate-card-invalid" };
+    }
     return { status: "ready", tracing: tracing.deliveryHealth() };
   });
 
@@ -713,6 +723,15 @@ export async function buildApp(
       return undefined;
     }
   };
+
+  registerCostRoutes(app, {
+    config,
+    freshAccessToken,
+    rateCards,
+    requireAdmin: requireDashboardMetricsAccess,
+    requireSignedIn: requireOperationalMetricsAccess,
+    respondReauth,
+  });
 
   app.get(
     "/api/metrics/usage/gateways",

@@ -4,6 +4,8 @@ import type {
 } from "@openshift-online/hypershell-operational-dashboard-ui";
 import {
   mockAdoptionDashboardMetrics,
+  mockCostDashboardMetrics,
+  mockMyCostDashboardMetrics,
   mockOperationalDashboardMetrics,
   mockReliabilityDashboardMetrics,
   mockUsageDashboardMetrics,
@@ -42,6 +44,19 @@ export function createMockDashboardControlPlane(): DashboardControlPlane {
         ...mockUsageDashboardMetrics,
         lastSuccessfulRefresh: new Date(),
       };
+    },
+
+    getCostMetrics(context: DashboardInvocationContext) {
+      context.signal?.throwIfAborted();
+      const metrics =
+        context.costView === "platform"
+          ? mockCostDashboardMetrics
+          : mockMyCostDashboardMetrics;
+      return Promise.resolve({
+        ...metrics,
+        lastSuccessfulRefresh: new Date(),
+        timeRange: context.timeRange ?? 7,
+      });
     },
 
     async getAdoptionMetrics(context: DashboardInvocationContext) {

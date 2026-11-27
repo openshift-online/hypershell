@@ -2,6 +2,7 @@ import { Nav, NavItem, NavList } from "@patternfly/react-core";
 import { useIntl } from "react-intl";
 
 import { useDashboardUi } from "../dashboard-ui-provider";
+import { costMessages } from "../cost-messages";
 import { messages } from "../messages";
 
 export type DashboardSecondaryNavActive =
@@ -10,7 +11,8 @@ export type DashboardSecondaryNavActive =
   | "inventory"
   | "reliability"
   | "usage"
-  | "adoption";
+  | "adoption"
+  | "cost";
 
 export interface DashboardSecondaryNavProps {
   active: DashboardSecondaryNavActive;
@@ -23,6 +25,7 @@ const items = [
   ["reliability", "reliabilityHref", messages.reliabilityNavReliability, true],
   ["usage", "usageHref", messages.usageNavUsage, false],
   ["adoption", "adoptionHref", messages.dashboardNavAdoption, true],
+  ["cost", "costHref", costMessages.costNavCost, false],
 ] as const;
 
 export function DashboardSecondaryNav({
@@ -39,21 +42,27 @@ export function DashboardSecondaryNav({
       <NavList>
         {items
           .filter(([, , , adminOnly]) => !adminOnly || isAdmin)
-          .map(([id, hrefName, label]) => (
-            <NavItem
-              isActive={active === id}
-              itemId={id}
-              key={id}
-              onClick={(event) => {
-                event.preventDefault();
-                void navigation.navigate(navigation[hrefName]);
-              }}
-              preventDefault
-              to={navigation[hrefName]}
-            >
-              {intl.formatMessage(label)}
-            </NavItem>
-          ))}
+          .flatMap(([id, hrefName, label]) => {
+            const href = navigation[hrefName];
+            if (href === undefined) {
+              return [];
+            }
+            return [
+              <NavItem
+                isActive={active === id}
+                itemId={id}
+                key={id}
+                onClick={(event) => {
+                  event.preventDefault();
+                  void navigation.navigate(href);
+                }}
+                preventDefault
+                to={href}
+              >
+                {intl.formatMessage(label)}
+              </NavItem>,
+            ];
+          })}
       </NavList>
     </Nav>
   );

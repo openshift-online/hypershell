@@ -6,6 +6,8 @@ import type { DashboardProbePublisher } from "./application/dashboard-probes";
 export interface DashboardUiNavigation {
   adoptionHref: string;
   collectionHref: string;
+  /** Cost dashboard; the Cost entry is hidden when the host has no route. */
+  costHref?: string;
   dashboardHref: string;
   inventoryHref: string;
   provisioningHref: string;

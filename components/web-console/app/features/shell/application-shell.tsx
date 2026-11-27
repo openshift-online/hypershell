@@ -74,6 +74,7 @@ export function ApplicationShell() {
     () => ({
       adoptionHref: routePaths.dashboardAdoption,
       collectionHref: routePaths.gatewayList,
+      costHref: routePaths.dashboardCost,
       dashboardHref: routePaths.dashboard,
       inventoryHref: routePaths.dashboardInventory,
       provisioningHref: routePaths.dashboardProvisioning,

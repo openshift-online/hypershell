@@ -45,3 +45,18 @@ export function usageDashboardMetricsQueryKey(timeRange?: DashboardTimeRange) {
 export function adoptionDashboardMetricsQueryKey(timeRange: 7 | 30) {
   return [...adoptionDashboardMetricsQueryRoot, timeRange] as const;
 }
+
+export const costDashboardMetricsQueryRoot = [
+  "cost-dashboard",
+  "metrics",
+] as const;
+
+export const costDashboardRefreshMilliseconds =
+  operationalDashboardRefreshMilliseconds;
+
+export function costDashboardMetricsQueryKey(
+  view: "platform" | "mine",
+  timeRange: DashboardTimeRange,
+) {
+  return [...costDashboardMetricsQueryRoot, view, timeRange] as const;
+}

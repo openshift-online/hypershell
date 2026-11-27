@@ -9,3 +9,8 @@ export {
   mockAdoptionDashboardMetrics,
   mockAdoptionDashboardUnavailableMetrics,
 } from "./mock-adoption-dashboard-metrics";
+export {
+  mockCostDashboardMetrics,
+  mockCostDashboardNotConfiguredMetrics,
+  mockMyCostDashboardMetrics,
+} from "./mock-cost-dashboard-metrics";

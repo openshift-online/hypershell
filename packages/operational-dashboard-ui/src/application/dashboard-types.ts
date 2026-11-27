@@ -1,3 +1,9 @@
+import type {
+  CostDashboardMetrics,
+  CostDashboardView,
+  CostMetricSourceId,
+} from "./cost-dashboard-types";
+
 export interface OperationalMetricTrendPoint {
   label: string;
   value: number | null;
@@ -192,7 +198,10 @@ export interface UsageDashboardMetrics {
 }
 
 export type DashboardFailedSourceId =
-  DashboardMetricSourceId | ReliabilityMetricSourceId | UsageMetricSourceId;
+  | CostMetricSourceId
+  | DashboardMetricSourceId
+  | ReliabilityMetricSourceId
+  | UsageMetricSourceId;
 
 export interface OperationalDashboardMetrics {
   failedSources?: readonly DashboardFailedSourceId[];
@@ -203,12 +212,15 @@ export interface OperationalDashboardMetrics {
 
 export interface DashboardInvocationContext {
   correlationId: string;
+  /** Cost dashboard view to load; only read by getCostMetrics. */
+  costView?: CostDashboardView;
   isAdmin?: boolean;
   timeRange?: DashboardTimeRange;
   signal?: AbortSignal;
 }
 
 export interface DashboardOperationalMetricsOptions {
+  costView?: CostDashboardView;
   isAdmin?: boolean;
 }
 
@@ -226,6 +238,10 @@ export interface DashboardControlPlane {
   getAdoptionMetrics(
     context: DashboardInvocationContext,
   ): Promise<OperationalDashboardMetrics>;
+  /** Cost dashboard metrics (WEB-COST-01); optional for hosts without it. */
+  getCostMetrics?(
+    context: DashboardInvocationContext,
+  ): Promise<CostDashboardMetrics>;
 }
 
 /** Driving entry port used by the dashboard presentation adapters. */
@@ -248,6 +264,12 @@ export interface DashboardOperations {
     timeRange?: DashboardTimeRange,
     options?: DashboardOperationalMetricsOptions,
   ): Promise<OperationalDashboardMetrics>;
+  /** Optional so hosts and stories without the cost dashboard need not stub it. */
+  getCostMetrics?(
+    signal?: AbortSignal,
+    timeRange?: DashboardTimeRange,
+    options?: DashboardOperationalMetricsOptions,
+  ): Promise<CostDashboardMetrics>;
 }
 
 /** Application-owned port for nondeterministic workflow context. */
