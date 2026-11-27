@@ -75,6 +75,22 @@ class GitOpsManifestTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(render(path, legacy=True))
 
+    def test_controller_uses_recreate_in_every_entry_point(self):
+        # openshell-gateway-helm-adoption.spec.md: at most one controller pod
+        # may run helm against a gateway release, so a rollout must stop the
+        # old pod first.
+        key = ("apps", "Deployment", "hypershell-system", "hypershell-controller")
+        rendered = {
+            "gitops/platform": self.platform,
+            "hub": self.hub,
+            **{path: render(path, legacy=True) for path in ("base", "openshift", "kind")},
+        }
+        for path, resources in rendered.items():
+            with self.subTest(path=path):
+                spec = resources[key]["spec"]
+                self.assertEqual(spec["replicas"], 1)
+                self.assertEqual(spec.get("strategy"), {"type": "Recreate"})
+
     def test_openshift_keycloak_guard_is_restricted_and_uses_jwks_url(self):
         resources = render("openshift", legacy=True)
         for deployment_name in ("hypershell-api-server", "hypershell-web-console"):

@@ -228,21 +228,14 @@ patches:
   # Shared-cluster e2e cannot spare surge pods. A 1-replica RollingUpdate is
   # maxUnavailable:0 / maxSurge:1, so a digest swap needs two pods and the
   # new one sits Pending. Recreate kills the old replica first. Production
-  # (deploy/hub, deploy/base) keeps the default rolling strategy.
+  # (deploy/hub, deploy/base) keeps the default rolling strategy for these.
+  # The controller is not patched here: deploy/base sets Recreate on it for
+  # every environment (one active controller).
   - patch: |
       apiVersion: apps/v1
       kind: Deployment
       metadata:
         name: hypershell-api-server
-        namespace: hypershell-system
-      spec:
-        strategy:
-          type: Recreate
-  - patch: |
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: hypershell-controller
         namespace: hypershell-system
       spec:
         strategy:
