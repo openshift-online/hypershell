@@ -972,14 +972,19 @@ func outsideOnly(builds []componentCheck, bundled map[string]bool) bool {
 // changeFirstBundle returns the first bundle of the change at commit index i
 // (FLT-DLV-06). A change with rebuilt components is contained by the oldest
 // bundle whose revision of every rebuilt component it lists is the change or a
-// later commit. A change with none keeps the manifest-revision rule. So does a
-// bundle with no component revisions (an old lock) or one that lists none of
-// the rebuilt components.
+// later commit. A change that built only outside-bundle components is in no
+// bundle, because its code never ships through one (FLT-DLV-06.08). A change
+// with no builds keeps the manifest-revision rule. So does a bundle with no
+// component revisions (an old lock) or one that lists none of the rebuilt
+// components.
 func changeFirstBundle(in deliveryInput, pl placement, i, pr int) int {
 	manifest := firstBundle(pl, in.commits, i, pr)
 	runs, ok := in.checks[in.commits[i].SHA]
 	if !ok {
 		return manifest
+	}
+	if builds, _ := classifyChecks(runs); outsideOnly(builds, pl.bundled) {
+		return -1
 	}
 	rebuilt := rebuiltComponents(runs, pl.bundled)
 	if len(rebuilt) == 0 {
@@ -1336,8 +1341,8 @@ func buildChange(in deliveryInput, pl placement, groups []envGroup, l listedChan
 	// Release (FLT-DLV-06).
 	release := DeliveryStage{Key: stageRelease}
 	// A change that built only outside-bundle components never reaches the
-	// environment groups through the bundle: its stages end at Release
-	// (FLT-DLV-06.08).
+	// environment groups through the bundle: its stages end at Release, even
+	// when a later bundle was cut from a newer commit (FLT-DLV-06.08).
 	outside := l.first < 0 && outsideOnly(builds, pl.bundled)
 	if l.first >= 0 {
 		b := in.bundles[l.first]

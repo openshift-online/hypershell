@@ -326,9 +326,11 @@ still be running, when another component's build produces the Snapshot. So:
    the change only when, for every rebuilt component the bundle lists, the
    bundle's revision of that component is the change's commit or a later commit
    on the application repository's linear `main` history.
-2. When the change has no rebuilt components (no build at all, every build
-   replaced, or only outside-bundle builds), the manifest-revision rule below
-   SHALL decide.
+2. When every build the change ran is of an outside-bundle component, no
+   bundle SHALL contain the change, even a bundle cut from a later commit,
+   because its code never ships through a bundle.
+3. When the change has no rebuilt components otherwise (no build at all, or
+   every build replaced), the manifest-revision rule below SHALL decide.
 
 The first bundle is the oldest bundle that contains the change. Replayed over
 3-13 November, the manifest-revision rule alone placed 13 of 67 changes with
@@ -356,7 +358,7 @@ contains it, showing the first bundle's alias and publication time. When the
 change's Policy check has passed and no bundle contains it yet, the Release
 stage SHALL be Running and SHALL be labelled "Releasing (inferred)", because
 the Konflux managed release is not observable. When every component the change
-built is an outside-bundle component and no bundle contains it yet, the Release
+built is an outside-bundle component (so no bundle contains it), the Release
 stage SHALL be Not needed with "Ships outside the bundle", not "Releasing
 (inferred)". Such a change never reaches the environment groups through the
 bundle, so its stages SHALL end at Release: the payload SHALL omit the
@@ -439,9 +441,10 @@ policy check, releasing (inferred), or failed.
 #### Scenario: FLT-DLV-06.08 -- Outside-bundle stages end at Release
 
 - GIVEN change C built only a component that no known bundle lists
-- AND no bundle contains C
+- AND a later bundle was cut from a commit newer than C
 - WHEN the BFF builds the payload and C's panel renders
-- THEN C's stages SHALL be Merged, Build, Policy check, and Release only
+- THEN no bundle SHALL contain C
+- AND C's stages SHALL be Merged, Build, Policy check, and Release only
 - AND C SHALL have no environments
 - AND once C's Policy check has passed, the panel SHALL read "Done here - ships outside the bundle"
 - AND the Bundle details SHALL read "Ships outside the bundle, so no bundle will contain this change."

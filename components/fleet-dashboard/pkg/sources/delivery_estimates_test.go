@@ -227,6 +227,7 @@ func TestDeliveryOutsideBundleStagesEndAtRelease(t *testing.T) {
 		konflux("demo-board-main-on-push", "completed", "success"),
 		konflux("demo-main-enterprise-contract / demo-board-main", "completed", "success"),
 	}
+	f.gh.checks[f.repo.sha(6)] = f.gh.checks[f.repo.sha(10)]
 	p := f.refresh(t)
 	c := change(t, p, f.repo.sha(10))
 	var keys []string
@@ -241,6 +242,15 @@ func TestDeliveryOutsideBundleStagesEndAtRelease(t *testing.T) {
 	}
 	if c.Bundle != nil {
 		t.Errorf("bundle = %+v, want none", c.Bundle)
+	}
+	// A later bundle cut from a newer commit (b3, at sha(8)) does not carry
+	// an outside-only change either.
+	older := change(t, p, f.repo.sha(6))
+	if older.Bundle != nil || len(older.Stages) != 4 || len(older.Envs) != 0 {
+		t.Errorf("older outside-only change: bundle %+v, %d stages, %d envs; want no bundle, 4 stages, no envs", older.Bundle, len(older.Stages), len(older.Envs))
+	}
+	if r := older.Stages[3]; r.State != StageNotNeeded || r.Reason != reasonOutsideBundle {
+		t.Errorf("older release = %s/%s, want not-needed/outside-bundle", r.State, r.Reason)
 	}
 	// A change that built a bundled component keeps every stage.
 	if n := len(change(t, p, f.repo.sha(9)).Stages); n <= 4 {
