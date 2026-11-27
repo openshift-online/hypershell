@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { CostDashboardMockup } from "./cost-dashboard";
+import { CostDashboardMockup } from "./cost-dashboard-mockup";
 const meta = {
   title: "Mockups/Dashboards/Cost dashboard",
   component: CostDashboardMockup,

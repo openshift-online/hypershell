@@ -13,6 +13,15 @@ This is a manifest refactor, not a live deployment or ownership migration.
 Monitoring stays platform-owned because it includes cluster-wide permissions
 and node-exporter hostPath mounts. Shared manifests are referenced, not copied.
 
+Optional console settings are Kustomize components under
+`deploy/gitops-base/components/`, which a site adds in its own overlay. They are
+not part of either package:
+
+- `openshift-dashboard-metrics`: OpenShift cluster metrics for the dashboards.
+- `cost-rate-card`: the cost dashboard rate card ConfigMap, its mount, and
+  `COST_RATE_CARD_FILE`. Without it, the cost dashboard shows "cost model not
+  configured".
+
 ## Consume from hypershell-gitops
 
 Use separate environment overlays referencing these sources at the **same full

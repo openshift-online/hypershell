@@ -19,6 +19,7 @@ resources:
   - gateway.yaml
   - httproutes.yaml
   - oidc-secrets.yaml
+  - cost-rules.yaml
 patches:
   # --- Controller: Kind env vars + OIDC ---
   - patch: |
@@ -161,6 +162,12 @@ patches:
     patch: |
       - op: remove
         path: /spec/storage
+      # Load the Kind-only cost recording rules (cost-rules.yaml).
+      - op: add
+        path: /spec/ruleSelector
+        value:
+          matchLabels:
+            hypershell.redhat.io/prometheus-rules: "true"
   # Enable JWT issuer and audience checks and authentication bypass paths.
   # Appending --enable-jwt=true is index-independent: --enable-jwt is a pflag
   # BoolVar, and repeated single-value flags are last-value-wins, so the
@@ -282,3 +289,7 @@ images:
     newTag: latest
   - name: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-web-console-main
     newTag: latest
+
+# Cost dashboard prices for local dev and e2e (WEB-COST-03).
+components:
+  - ../gitops-base/components/cost-rate-card

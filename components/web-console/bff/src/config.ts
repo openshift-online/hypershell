@@ -122,6 +122,35 @@ const configSchema = z.object({
   CLUSTER_PROMETHEUS_URL: httpOrigin.optional(),
   CLUSTER_PROMETHEUS_TOKEN_FILE: z.string().trim().min(1).optional(),
   CLUSTER_PROMETHEUS_CA_FILE: z.string().trim().min(1).optional(),
+  // Cost dashboard (WEB-COST-03). The rate card file enables the cost routes;
+  // COST_PROMETHEUS_URL names the hub Prometheus that holds the fleet's
+  // reserved-capacity recording rules (defaults to PROMETHEUS_URL), and
+  // COST_CLUSTERS optionally limits cost to a comma-separated list of
+  // `cluster` label values.
+  COST_RATE_CARD_FILE: z.string().trim().min(1).optional(),
+  COST_PROMETHEUS_URL: httpOrigin.optional(),
+  COST_PROMETHEUS_TOKEN_FILE: z.string().trim().min(1).optional(),
+  COST_PROMETHEUS_CA_FILE: z.string().trim().min(1).optional(),
+  COST_CLUSTERS: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) =>
+      value === undefined || value === ""
+        ? undefined
+        : value
+            .split(",")
+            .map((cluster) => cluster.trim())
+            .filter(Boolean),
+    )
+    .refine(
+      (clusters) =>
+        clusters === undefined ||
+        clusters.every((cluster) =>
+          /^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$/u.test(cluster),
+        ),
+      "must be a comma-separated list of cluster label values",
+    ),
   HYPERSHELL_WEB_VERSION: z
     .string()
     .trim()
@@ -188,6 +217,11 @@ export interface ServerConfig {
   clusterPrometheusUrl?: string;
   clusterPrometheusTokenFile?: string;
   clusterPrometheusCaFile?: string;
+  costClusters?: string[];
+  costPrometheusCaFile?: string;
+  costPrometheusTokenFile?: string;
+  costPrometheusUrl?: string;
+  costRateCardFile?: string;
   sessionSecret?: Buffer;
   sessionTtlSeconds: number;
   staticRoot: string;
@@ -273,6 +307,16 @@ export function loadConfig(
     );
   }
 
+  if (
+    (result.data.COST_PROMETHEUS_TOKEN_FILE ||
+      result.data.COST_PROMETHEUS_CA_FILE) &&
+    !result.data.COST_PROMETHEUS_URL?.startsWith("https://")
+  ) {
+    throw new Error(
+      "COST_PROMETHEUS_URL must be HTTPS when metrics credential files are configured",
+    );
+  }
+
   if (result.data.OIDC_ISSUER) {
     const oidcProblems: string[] = [];
     if (!result.data.OIDC_CLIENT_ID) {
@@ -310,6 +354,11 @@ export function loadConfig(
     clusterPrometheusUrl: result.data.CLUSTER_PROMETHEUS_URL,
     clusterPrometheusTokenFile: result.data.CLUSTER_PROMETHEUS_TOKEN_FILE,
     clusterPrometheusCaFile: result.data.CLUSTER_PROMETHEUS_CA_FILE,
+    costClusters: result.data.COST_CLUSTERS,
+    costPrometheusCaFile: result.data.COST_PROMETHEUS_CA_FILE,
+    costPrometheusTokenFile: result.data.COST_PROMETHEUS_TOKEN_FILE,
+    costPrometheusUrl: result.data.COST_PROMETHEUS_URL,
+    costRateCardFile: result.data.COST_RATE_CARD_FILE,
     sessionSecret: result.data.SESSION_SECRET
       ? Buffer.from(result.data.SESSION_SECRET, "hex")
       : undefined,

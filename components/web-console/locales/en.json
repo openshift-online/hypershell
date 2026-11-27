@@ -175,6 +175,290 @@
     "defaultMessage": "Valid certificates",
     "description": "Label for valid certificates."
   },
+  "app.dashboard.cost.about.attribution": {
+    "defaultMessage": "Each gateway, including all its workspaces and sandboxes, is charged to one billing owner: the current owner with the oldest owner grant. If that owner leaves, the gateway's cost in the selected period moves to the next-oldest owner.",
+    "description": "Explains billing owner attribution."
+  },
+  "app.dashboard.cost.about.excluded": {
+    "defaultMessage": "Not included: storage, network egress, load balancers, managed services such as databases and secrets, and LLM spend.",
+    "description": "Lists what the cost estimate excludes."
+  },
+  "app.dashboard.cost.about.model": {
+    "defaultMessage": "Cost is estimated from reserved capacity: CPU and memory requests, and node capacity that nothing reserves, multiplied by a rate card supplied by this deployment (version {version}, {currency}). Monthly figures use a 730-hour month.",
+    "description": "Explains the cost model."
+  },
+  "app.dashboard.cost.about.notBilling": {
+    "defaultMessage": "These values are directional estimates for capacity planning. They are not billing-grade and are not reconciled with a cloud invoice.",
+    "description": "States the estimates are not billing-grade."
+  },
+  "app.dashboard.cost.about.title": {
+    "defaultMessage": "About these estimates",
+    "description": "Heading of the cost model explanation section."
+  },
+  "app.dashboard.cost.charged.caption": {
+    "defaultMessage": "{count, plural, one {# gateway} other {# gateways}} where you are the billing owner",
+    "description": "Caption under the charged headline."
+  },
+  "app.dashboard.cost.chargedToMeLabel": {
+    "defaultMessage": "Charged to me",
+    "description": "Label on a gateway the signed-in user is billing owner of."
+  },
+  "app.dashboard.cost.class.gateways": {
+    "defaultMessage": "Gateways",
+    "description": "Resource class row for gateway server cost."
+  },
+  "app.dashboard.cost.class.idle": {
+    "defaultMessage": "Idle capacity",
+    "description": "Resource class row for unreserved node capacity."
+  },
+  "app.dashboard.cost.class.platform": {
+    "defaultMessage": "Platform overhead",
+    "description": "Resource class row for non-gateway namespaces."
+  },
+  "app.dashboard.cost.class.sandboxes": {
+    "defaultMessage": "Sandboxes",
+    "description": "Resource class row for sandbox (workspace) cost."
+  },
+  "app.dashboard.cost.column.billingOwner": {
+    "defaultMessage": "Billing owner",
+    "description": "Table column header for a gateway's billing owner."
+  },
+  "app.dashboard.cost.column.cluster": {
+    "defaultMessage": "Cluster",
+    "description": "Table column header for a cluster."
+  },
+  "app.dashboard.cost.column.gateway": {
+    "defaultMessage": "Gateway",
+    "description": "Table column header for a gateway name."
+  },
+  "app.dashboard.cost.column.gateways": {
+    "defaultMessage": "Gateways",
+    "description": "Table column header for a count of gateways."
+  },
+  "app.dashboard.cost.column.monthly": {
+    "defaultMessage": "Monthly estimate",
+    "description": "Table column header for a monthly cost estimate."
+  },
+  "app.dashboard.cost.column.myRole": {
+    "defaultMessage": "My role",
+    "description": "Table column header for the signed-in user's role."
+  },
+  "app.dashboard.cost.column.workspace": {
+    "defaultMessage": "Workspace",
+    "description": "Table column header for a workspace."
+  },
+  "app.dashboard.cost.description": {
+    "defaultMessage": "Directional operational estimates for capacity planning. This view is not billing-grade reporting.",
+    "description": "Lead paragraph under the cost dashboard heading."
+  },
+  "app.dashboard.cost.empty.body": {
+    "defaultMessage": "Cost appears here once you own a gateway or one is shared with you.",
+    "description": "Empty state body for a user with no gateway bindings."
+  },
+  "app.dashboard.cost.empty.title": {
+    "defaultMessage": "You have no gateways yet",
+    "description": "Empty state title for a user with no gateway bindings."
+  },
+  "app.dashboard.cost.environment.unknown": {
+    "defaultMessage": "Unlabeled",
+    "description": "Label for clusters without an environment label."
+  },
+  "app.dashboard.cost.estimatedMonthly": {
+    "defaultMessage": "Estimated monthly cost",
+    "description": "Caption above breakdown rows."
+  },
+  "app.dashboard.cost.estimatesAlert.body": {
+    "defaultMessage": "Model inputs and limitations are documented.",
+    "description": "Body of the estimates info alert."
+  },
+  "app.dashboard.cost.estimatesAlert.link": {
+    "defaultMessage": "About these estimates",
+    "description": "Link from the estimates alert to the model explanation."
+  },
+  "app.dashboard.cost.estimatesAlert.title": {
+    "defaultMessage": "Estimated costs only",
+    "description": "Title of the info alert stating values are estimates."
+  },
+  "app.dashboard.cost.idle.share": {
+    "defaultMessage": "{percent}% of estimated monthly cost",
+    "description": "Share of the total that idle capacity represents."
+  },
+  "app.dashboard.cost.idle.unusedGateways": {
+    "defaultMessage": "Unused gateways",
+    "description": "Row for the cost of gateways with no traffic in the range."
+  },
+  "app.dashboard.cost.loadError.body": {
+    "defaultMessage": "Try refreshing the dashboard in a few minutes.",
+    "description": "Body shown when every cost metric source failed."
+  },
+  "app.dashboard.cost.loadError.title": {
+    "defaultMessage": "Cost metrics are unavailable",
+    "description": "Title shown when every cost metric source failed."
+  },
+  "app.dashboard.cost.loading": {
+    "defaultMessage": "Loading cost dashboard",
+    "description": "Accessible label for the cost dashboard loading spinner."
+  },
+  "app.dashboard.cost.nav": {
+    "defaultMessage": "Cost",
+    "description": "Dashboard secondary navigation entry for the cost dashboard."
+  },
+  "app.dashboard.cost.noRows": {
+    "defaultMessage": "No cost recorded in the selected period.",
+    "description": "Shown in a cost table with no rows."
+  },
+  "app.dashboard.cost.notConfigured.body": {
+    "defaultMessage": "This deployment has no rate card, so no cost can be estimated.",
+    "description": "Body for the cost model not configured state."
+  },
+  "app.dashboard.cost.notConfigured.title": {
+    "defaultMessage": "Cost model not configured",
+    "description": "Shown in each cost widget when the deployment has no rate card."
+  },
+  "app.dashboard.cost.partialData.body": {
+    "defaultMessage": "Metrics are available from {start}. Monthly figures are scaled from the covered period.",
+    "description": "Body of the partial coverage notice."
+  },
+  "app.dashboard.cost.partialData.title": {
+    "defaultMessage": "Partial data for the selected range",
+    "description": "Title of the partial coverage notice."
+  },
+  "app.dashboard.cost.perGateway": {
+    "defaultMessage": "Cost per gateway",
+    "description": "Summary row for the average monthly cost of a gateway."
+  },
+  "app.dashboard.cost.perMonth": {
+    "defaultMessage": "{amount} / month",
+    "description": "A monthly cost amount."
+  },
+  "app.dashboard.cost.perSandbox": {
+    "defaultMessage": "Cost per sandbox",
+    "description": "Summary row for the average monthly cost of a sandbox."
+  },
+  "app.dashboard.cost.perUser.caption": {
+    "defaultMessage": "Directional estimate for selected period",
+    "description": "Caption under the cost per active user value."
+  },
+  "app.dashboard.cost.purpose.mine": {
+    "defaultMessage": "What do the gateways I am the billing owner of cost to run, and what do the gateways shared with me cost? Each gateway is charged in full to its billing owner, the owner with the oldest owner grant.",
+    "description": "Purpose statement for the My cost view."
+  },
+  "app.dashboard.cost.purpose.platform": {
+    "defaultMessage": "What is the directional operating cost of the platform, where is it concentrated, and how much may be tied to idle resources? It is restricted to system admins and is not billing-grade reporting.",
+    "description": "Purpose statement for the platform cost view."
+  },
+  "app.dashboard.cost.purposeHeading": {
+    "defaultMessage": "What this dashboard answers",
+    "description": "Heading for the cost dashboard purpose statement."
+  },
+  "app.dashboard.cost.role.admin": {
+    "defaultMessage": "Admin",
+    "description": "Gateway role: admin."
+  },
+  "app.dashboard.cost.role.owner": {
+    "defaultMessage": "Owner",
+    "description": "Gateway role: owner."
+  },
+  "app.dashboard.cost.role.user": {
+    "defaultMessage": "Viewer",
+    "description": "Gateway role: viewer (user)."
+  },
+  "app.dashboard.cost.shared.caption": {
+    "defaultMessage": "{count, plural, one {# gateway} other {# gateways}} charged to another billing owner",
+    "description": "Caption under the shared amount."
+  },
+  "app.dashboard.cost.systemLabel": {
+    "defaultMessage": "System",
+    "description": "Label on platform-view widgets that show system-wide data."
+  },
+  "app.dashboard.cost.title": {
+    "defaultMessage": "Cost dashboard",
+    "description": "Main heading on the cost dashboard page."
+  },
+  "app.dashboard.cost.trendCaption": {
+    "defaultMessage": "Daily cost, selected period",
+    "description": "Caption under a daily cost sparkline."
+  },
+  "app.dashboard.cost.unavailable": {
+    "defaultMessage": "Unavailable",
+    "description": "Shown in a cost widget whose metric source failed."
+  },
+  "app.dashboard.cost.unpriced.body": {
+    "defaultMessage": "Excluded from totals: {clusters}.",
+    "description": "Body of the unpriced clusters warning."
+  },
+  "app.dashboard.cost.unpriced.title": {
+    "defaultMessage": "Some clusters have no rate",
+    "description": "Title of the unpriced clusters warning."
+  },
+  "app.dashboard.cost.unusedLabel": {
+    "defaultMessage": "Unused",
+    "description": "Label on a gateway with no traffic in the range."
+  },
+  "app.dashboard.cost.view.label": {
+    "defaultMessage": "Cost view",
+    "description": "Accessible label for the platform / My cost view switch."
+  },
+  "app.dashboard.cost.view.mine": {
+    "defaultMessage": "My cost",
+    "description": "View switch option for the signed-in user's cost view."
+  },
+  "app.dashboard.cost.view.platform": {
+    "defaultMessage": "Platform",
+    "description": "View switch option for the platform-wide cost view."
+  },
+  "app.dashboard.cost.widget.byBillingOwner": {
+    "defaultMessage": "By billing owner",
+    "description": "Title of the cost by billing owner widget."
+  },
+  "app.dashboard.cost.widget.byCluster": {
+    "defaultMessage": "By cluster",
+    "description": "Title of the cost by cluster widget."
+  },
+  "app.dashboard.cost.widget.byEnvironment": {
+    "defaultMessage": "By environment",
+    "description": "Title of the cost by environment widget."
+  },
+  "app.dashboard.cost.widget.byGateway": {
+    "defaultMessage": "Cost by gateway",
+    "description": "Title of the My cost per-gateway table widget."
+  },
+  "app.dashboard.cost.widget.byResourceClass": {
+    "defaultMessage": "By resource class",
+    "description": "Title of the cost by resource class widget."
+  },
+  "app.dashboard.cost.widget.byWorkspace": {
+    "defaultMessage": "Cost by workspace",
+    "description": "Title of the My cost per-workspace table widget."
+  },
+  "app.dashboard.cost.widget.charged": {
+    "defaultMessage": "Cost charged to me",
+    "description": "Title of the My cost charged headline widget."
+  },
+  "app.dashboard.cost.widget.idle": {
+    "defaultMessage": "Idle resource cost",
+    "description": "Title of the idle capacity cost widget and summary row."
+  },
+  "app.dashboard.cost.widget.perUser": {
+    "defaultMessage": "Cost per active user",
+    "description": "Title of the cost per active user widget and summary row."
+  },
+  "app.dashboard.cost.widget.shared": {
+    "defaultMessage": "Shared with me",
+    "description": "Title of the widget for gateways shared with the user."
+  },
+  "app.dashboard.cost.widget.summary": {
+    "defaultMessage": "Cost summary",
+    "description": "Title of the platform cost summary widget."
+  },
+  "app.dashboard.cost.widget.topGateways": {
+    "defaultMessage": "Most expensive gateways",
+    "description": "Title of the top ten gateways by cost widget."
+  },
+  "app.dashboard.cost.widget.trend": {
+    "defaultMessage": "Daily cost charged to me",
+    "description": "Title of the My cost daily trend widget."
+  },
   "app.dashboard.description": {
     "defaultMessage": "A compact landing page for the current state of the resources you are allowed to operate.",
     "description": "Supporting text on the operational dashboard page."

@@ -15,6 +15,7 @@ import type {
   UsageMetricSourceId,
 } from "@openshift-online/hypershell-operational-dashboard-ui";
 import type { SDKClient } from "@openshift-online/hypershell-sdk";
+import { fetchCostDashboardMetrics } from "./cost-control-plane";
 import {
   aggregateGatewayReleaseDistribution,
   buildGatewayReleasesMetric,
@@ -1508,6 +1509,8 @@ export function createDashboardControlPlaneAdapter(
         timeRange: context.timeRange ?? 7,
       };
     },
+
+    getCostMetrics: fetchCostDashboardMetrics,
 
     async getAdoptionMetrics(
       context: DashboardInvocationContext,

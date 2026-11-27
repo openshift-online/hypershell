@@ -7,7 +7,8 @@ export type DashboardWorkflowAction =
   | "get-operational-metrics"
   | "get-reliability-metrics"
   | "get-usage-metrics"
-  | "get-adoption-metrics";
+  | "get-adoption-metrics"
+  | "get-cost-metrics";
 export type DashboardLayoutAction = "persist-layout-template";
 export type DashboardProbeAction =
   DashboardWorkflowAction | DashboardLayoutAction;

@@ -1,0 +1,27 @@
+# Kind-only inputs for the cost dashboard (specs/web-console/cost-dashboard.spec.md).
+# Production builds these four series on the hub from federated cluster
+# metrics. Kind has one cluster and no federation, so these rules read the
+# local kube-state-metrics directly and add a fixed cluster="kind" label. The
+# series carry no provider label, so the rate card "defaults" price them.
+# The kube-state-metrics ServiceMonitor does not honor labels, so a pod's own
+# namespace arrives as exported_namespace; the namespace rules copy it back.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: hypershell-cost-inputs
+  namespace: hypershell-system
+  labels:
+    hypershell.redhat.io/prometheus-rules: "true"
+spec:
+  groups:
+    - name: hypershell-cost-inputs
+      interval: 1m
+      rules:
+        - record: hypershell:cluster_cpu_allocatable:cores
+          expr: label_replace(sum(kube_node_status_allocatable{resource="cpu"}), "cluster", "kind", "", "")
+        - record: hypershell:cluster_memory_allocatable:bytes
+          expr: label_replace(sum(kube_node_status_allocatable{resource="memory"}), "cluster", "kind", "", "")
+        - record: hypershell:namespace_cpu_requests:cores
+          expr: sum by (cluster, namespace) (label_replace(label_replace(kube_pod_container_resource_requests{resource="cpu"}, "namespace", "$1", "exported_namespace", "(.+)"), "cluster", "kind", "", ""))
+        - record: hypershell:namespace_memory_requests:bytes
+          expr: sum by (cluster, namespace) (label_replace(label_replace(kube_pod_container_resource_requests{resource="memory"}, "namespace", "$1", "exported_namespace", "(.+)"), "cluster", "kind", "", ""))

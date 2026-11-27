@@ -219,6 +219,7 @@ the rest of `WEB` here for lookup convenience.
 | `WEB-ARCH` | `web-console/architecture.spec.md` | 3 |
 | `WEB-AUTH` | `web-console/architecture.spec.md` | 4 |
 | `WEB-BFF` | `web-console/architecture.spec.md` | 1 |
+| `WEB-COST` | `web-console/cost-dashboard.spec.md` | 10 |
 | `WEB-DATA` | `web-console/architecture.spec.md` | 4 |
 | `WEB-DOCS` | `platform/openshell-install-docs-link.spec.md` | 2 |
 | `WEB-DPLY` | `web-console/architecture.spec.md` | 2 |

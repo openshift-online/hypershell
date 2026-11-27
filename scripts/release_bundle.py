@@ -45,6 +45,7 @@ MANIFEST_PATHS = (
     "deploy/hub",
     "deploy/base/keycloak/theme",
     "deploy/gitops-base/components/openshift-dashboard-metrics",
+    "deploy/gitops-base/components/cost-rate-card",
 )
 MEDIA_TYPE = "application/vnd.hypershell.release.v1+json"
 CLI_ASSETS = tuple("hsctl-" + target for target in (

@@ -7,6 +7,7 @@ import {
 } from "@patternfly/react-core";
 import { AddWidgetsButton } from "@patternfly/widgetized-dashboard";
 import { FormattedMessage, useIntl } from "react-intl";
+import type { ReactNode } from "react";
 
 import type { DashboardTimeRange } from "../application/dashboard-types";
 import { messages } from "../messages";
@@ -58,12 +59,15 @@ export function DashboardNavigation({
 }
 
 export function DashboardFilterToolbar({
+  children,
   onAddWidgets,
   onResetToDefault,
   onTimeRangeChange,
   showTimeRange = true,
   timeRange,
 }: Readonly<{
+  /** Extra page controls shown before the layout actions. */
+  children?: ReactNode;
   onAddWidgets: () => void;
   onResetToDefault: () => void;
   onTimeRangeChange?: (timeRange: DashboardTimeRange) => void;
@@ -99,6 +103,7 @@ export function DashboardFilterToolbar({
         ) : null}
       </Flex>
       <Flex alignItems={{ default: "alignItemsCenter" }}>
+        {children}
         <Button variant="link" onClick={onResetToDefault}>
           {intl.formatMessage(messages.resetToDefault)}
         </Button>
