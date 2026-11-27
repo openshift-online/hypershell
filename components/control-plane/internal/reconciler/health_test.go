@@ -1087,3 +1087,28 @@ func TestReconcileGatewayHealth_VaultReachableStaysRunning(t *testing.T) {
 		t.Fatalf("gateway degraded unexpectedly: %v", update)
 	}
 }
+
+// Verifies: PLAT-DATA-33.03
+func TestShouldCompleteConditions_SkipsPendingGeneration(t *testing.T) {
+	pending := []*pb.ProvisioningCondition{{
+		Type:            "GatewayDeployed",
+		ConditionStatus: pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_PENDING,
+	}}
+	obs := func(v int64) *int64 { return &v }
+	cases := []struct {
+		name string
+		gw   *pb.Gateway
+		want bool
+	}{
+		{"applied generation is completed", &pb.Gateway{Generation: 3, ObservedGeneration: obs(3), ProvisioningConditions: pending}, true},
+		{"pending generation keeps its step", &pb.Gateway{Generation: 3, ObservedGeneration: obs(2), ProvisioningConditions: pending}, false},
+		{"no conditions", &pb.Gateway{Generation: 3, ObservedGeneration: obs(3)}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shouldCompleteConditions(tc.gw); got != tc.want {
+				t.Errorf("shouldCompleteConditions = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

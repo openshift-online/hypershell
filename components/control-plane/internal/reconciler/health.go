@@ -415,9 +415,12 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 	// (and, for a routed gateway, its route) is observed ready. Whoever promotes a
 	// gateway to Running therefore also completes its conditions, so a Running
 	// gateway never reports an unfinished step. Only write when a condition is not
-	// already Complete, so a steady-state healthy tick adds no update traffic.
+	// already Complete, so a steady-state healthy tick adds no update traffic,
+	// and only for an applied generation: a pending generation (for example a
+	// target_bundle this controller does not run, PLAT-DATA-33.03) keeps its
+	// Pending step.
 	if desiredPhase == string(gatewayhealth.PhaseRunning) && desiredStatus == gatewayhealth.StatusHealthy {
-		if conds := gw.GetProvisioningConditions(); len(conds) > 0 && !allConditionsComplete(conds) {
+		if conds := gw.GetProvisioningConditions(); shouldCompleteConditions(gw) {
 			if update == nil {
 				update = &pb.UpdateGatewayRequest{Id: gatewayID}
 			}
@@ -643,4 +646,16 @@ func (h *GatewayHealthReconciler) clearRouteTimer(gatewayID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.routeNotReadySince, gatewayID)
+}
+
+// shouldCompleteConditions reports whether a Running, healthy gateway's
+// conditions should be finalized to Complete. It is false while the stored
+// generation is not yet applied, so a step left Pending on purpose stays
+// visible instead of being overwritten on the next health tick.
+func shouldCompleteConditions(gw *pb.Gateway) bool {
+	conds := gw.GetProvisioningConditions()
+	if len(conds) == 0 || allConditionsComplete(conds) {
+		return false
+	}
+	return gw.GetObservedGeneration() == gw.GetGeneration()
 }

@@ -944,6 +944,7 @@ a controller rollout alone.
 - THEN the control plane SHALL change nothing on the cluster
 - AND `observed_generation` SHALL remain unchanged
 - AND the `GatewayDeployed` condition SHALL be `Pending` with a message naming B2 and B1
+- AND the health reconciler SHALL NOT mark that condition `Complete` while the Gateway's generation is not applied
 
 #### Scenario: PLAT-DATA-33.04 -- Pending target applies after a rollout
 - GIVEN a Gateway whose `target_bundle` B2 is pending under a B1 controller
