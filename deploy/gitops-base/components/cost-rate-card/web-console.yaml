@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hypershell-web-console
+spec:
+  template:
+    spec:
+      containers:
+        - name: web-console
+          env:
+            - name: COST_RATE_CARD_FILE
+              value: /etc/hypershell/cost/rate-card.json
+          volumeMounts:
+            - name: cost-rate-card
+              mountPath: /etc/hypershell/cost
+              readOnly: true
+      volumes:
+        - name: cost-rate-card
+          configMap:
+            name: hypershell-cost-rate-card

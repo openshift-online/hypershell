@@ -282,3 +282,7 @@ patches:
       name: hypershell-web-console
       namespace: hypershell-system
     path: wait-for-keycloak.patch.yaml
+
+# Cost dashboard prices for local dev and e2e (WEB-COST-03).
+components:
+  - ../gitops-base/components/cost-rate-card

@@ -1,9 +1,9 @@
 # Cost Dashboard
 
 **Status:** Draft
-**Version:** 0.4.0
+**Version:** 0.4.1
 **Created:** 2026-11-26
-**Changed:** 0.2.0 adds the per-user "My cost" view and namespace-based workspace attribution. 0.3.0 charges every gateway to a single **billing owner**, the oldest current owner (decided 2026-11-27). 0.4.0 records implementation choices: JSON rate card file, `COST_PROMETHEUS_*` and `COST_CLUSTERS` settings, the four hub recording rules, and the extended mockups
+**Changed:** 0.2.0 adds the per-user "My cost" view and namespace-based workspace attribution. 0.3.0 charges every gateway to a single **billing owner**, the oldest current owner (decided 2026-11-27). 0.4.0 records implementation choices: JSON rate card file, `COST_PROMETHEUS_*` and `COST_CLUSTERS` settings, the four hub recording rules, and the extended mockups. 0.4.1 ships the default rate card as an optional Kustomize component that sites add in their overlay
 **Applies to:** `packages/operational-dashboard-ui`, `components/web-console` SPA and BFF, hub Prometheus recording rules (gitops `bases/observability`, `clusters/hypc-ibm-infra/.../metrics-hub`)
 **Tracks:** _TBD_
 
@@ -178,6 +178,20 @@ range start is reported as partial coverage.
 | `COST_PROMETHEUS_URL`                                   | Prometheus that holds the recording rules (the hub). Defaults to `PROMETHEUS_URL`. HTTPS is required outside local development, as for `PROMETHEUS_URL`.                        |
 | `COST_PROMETHEUS_TOKEN_FILE`, `COST_PROMETHEUS_CA_FILE` | Bearer token and CA bundle for `COST_PROMETHEUS_URL`.                                                                                                                           |
 | `COST_CLUSTERS`                                         | Optional comma-separated `cluster` label values that belong to this HyperShell instance. When set, every cost query is limited to them, so one hub can serve several instances. |
+
+The base console manifests set none of these, so a plain install starts with the
+cost model not configured. A site opts in from its gitops overlay in one of two
+ways:
+
+1. Add the optional Kustomize component
+   `deploy/gitops-base/components/cost-rate-card`. It adds the
+   `hypershell-cost-rate-card` ConfigMap with the default IBM us-east prices, the
+   read-only mount, and `COST_RATE_CARD_FILE`. The site can replace the
+   ConfigMap to set its own prices.
+2. Provide its own ConfigMap, mount, and `COST_RATE_CARD_FILE`.
+
+The Kind and OpenShift dev overlays include the component. `deploy/gitops/applications`
+and `deploy/hub` do not.
 
 ## Attribution to users
 
