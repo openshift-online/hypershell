@@ -114,13 +114,36 @@ The control plane SHALL use the Helm CLI to manage gateway Helm releases program
 - AND if the status starts with `pending-` (an install, upgrade or rollback that was interrupted, for example by a controller restart), it SHALL run `helm uninstall` and then `helm install`, because Helm rejects every new operation on a pending release
 - AND for any other status, it SHALL run `helm upgrade --reset-values`
 
-The reconciler provisions a gateway only while its desired spec is not converged (`observed_generation` is behind `generation`; see `control-plane.spec.md`, CTRL-CORE-13). A converged gateway is not upgraded again. A new chart or image default in the control plane therefore reaches an existing gateway only with its next spec change.
+The reconciler provisions a gateway only while its desired spec is not converged (`observed_generation` is behind `generation`; see `control-plane.spec.md`, CTRL-CORE-13). A converged gateway is not upgraded again.
+
+A new chart or image default reaches an existing gateway only through a desired-state change. A platform administrator requests one by setting the gateway's `target_bundle` (`data-model.spec.md`, PLAT-DATA-33). The reconciler applies a target only when it names the reconciler's own bundle; otherwise the target stays pending and is applied, unattended, once a controller running that bundle reconciles the gateway.
 
 #### Scenario: OSG-HELM-01.05 -- Gateway spec change upgrades the release
 
 - GIVEN a gateway whose release status is `deployed`
 - WHEN its desired spec changes (for example a new `image`)
 - THEN the GatewayReconciler SHALL run `helm upgrade --reset-values` with values computed from the new spec
+
+#### Scenario: OSG-HELM-01.07 -- A matching target bundle upgrades the release
+
+- GIVEN a converged gateway deployed by an older control-plane build
+- WHEN a platform administrator sets its `target_bundle` to the bundle the current control plane runs (PLAT-DATA-33)
+- THEN the GatewayReconciler SHALL run `helm upgrade --reset-values` with the current embedded chart and current default images
+- AND on success it SHALL record the new `observed_generation` and `deployed_bundle` (PLAT-DATA-34)
+
+#### Scenario: OSG-HELM-01.08 -- A control-plane rollout alone does not upgrade a converged gateway
+
+- GIVEN a converged gateway with no pending target
+- WHEN a control-plane build with a new chart or new default images starts
+- THEN the GatewayReconciler SHALL NOT upgrade the gateway's release
+- AND the gateway's `deployed_bundle` SHALL keep naming the build that last applied it
+
+#### Scenario: OSG-HELM-01.09 -- A target for another bundle is not applied
+
+- GIVEN a gateway whose `target_bundle` names a bundle other than the reconciler's own
+- WHEN the GatewayReconciler processes it
+- THEN it SHALL NOT run any Helm operation
+- AND it SHALL leave the gateway unconverged with a `Pending` `GatewayDeployed` condition naming both bundles
 
 #### Scenario: OSG-HELM-01.06 -- Failed Helm operation is retried
 
@@ -156,6 +179,29 @@ The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` arc
 - AND the chart source SHALL be committed to the repository under `charts/openshell/` and vendored via `make vendor-openshell-chart` (which clones the upstream tag, replaces the directory, and strips forbidden characters); the Dockerfile COPYs this committed tree and runs `helm package` with no network access, satisfying Konflux hermetic build requirements
 - AND upgrading the chart version SHALL require updating `OPENSHELL_VERSION`, running `make vendor-openshell-chart` to re-vendor the chart source, and rebuilding the control plane image
 - AND this ensures the chart version is always coupled to the control plane release -- a given control plane image always deploys the same chart version
+
+---
+
+### Requirement: OSG-HELM-07 -- Packaged Chart Version
+
+The control-plane image build SHALL package the vendored chart with a real version, so `helm list` and `helm history` show which OpenShell chart a gateway release runs. The committed `charts/openshell/Chart.yaml` keeps its upstream placeholder values; the build sets the version (CICD-IMG-07).
+
+- The chart `version` SHALL be `OPENSHELL_TAG` without its leading `v`, plus the SemVer build metadata `+hs`. The `+hs` marks that the chart carries HyperShell-local patches. Example: `v0.1.10-rhaiv.0` packages as `0.1.10-rhaiv.0+hs`.
+- The chart `appVersion` SHALL be `OPENSHELL_TAG` unchanged.
+
+The upstream chart uses `appVersion` as the fallback image tag when an image tag is not set. The control plane SHALL set every image the chart renders explicitly (OSG-HELM-03), so the stamped `appVersion` never changes a rendered image reference.
+
+#### Scenario: OSG-HELM-07.01 -- Release history shows the OpenShell chart version
+
+- GIVEN a control-plane image built with `OPENSHELL_TAG=v0.1.10-rhaiv.0`
+- WHEN it installs or upgrades a gateway release
+- THEN `helm list` SHALL report chart `openshell-0.1.10-rhaiv.0+hs` and app version `v0.1.10-rhaiv.0`
+
+#### Scenario: OSG-HELM-07.02 -- The stamp does not change rendered images
+
+- GIVEN the values the control plane builds for a gateway
+- WHEN the chart is rendered once with the placeholder version and once with the stamped version
+- THEN every rendered image reference SHALL be identical in both renders
 
 ---
 

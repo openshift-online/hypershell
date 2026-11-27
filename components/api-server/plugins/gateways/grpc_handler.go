@@ -426,6 +426,11 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	if req.ObservedGeneration != nil {
 		gateway.ObservedGeneration = *req.ObservedGeneration
 	}
+	// deployed_bundle is control-plane-observed (PLAT-DATA-34): the field policy
+	// rejects a user or import change of it.
+	if req.DeployedBundle != nil {
+		gateway.DeployedBundle = req.DeployedBundle
+	}
 	result, svcErr := h.service.Replace(ctx, gateway)
 	if svcErr != nil {
 		// The route.certificate immutability conflict is an inherent property of

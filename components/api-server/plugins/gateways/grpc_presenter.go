@@ -32,6 +32,8 @@ func gatewayToProto(d *Gateway) *pb.Gateway {
 		RouteAddress:       d.RouteAddress,
 		ConsoleAddress:     d.ConsoleAddress,
 		GatewayVersion:     d.GatewayVersion,
+		DeployedBundle:     d.DeployedBundle,
+		TargetBundle:       d.TargetBundle,
 		Oidc:               d.Oidc,
 		Route:              d.Route,
 		DedicatedRoute:     d.DedicatedRoute,

@@ -297,6 +297,7 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | Digests in specs and `ibm-cluster/SKILL.md` | `sha256:` of gateway, supervisor, sandbox | Replace the old digest strings too, not only the tag; read new ones from the Quay tag API. If the Quay API is unreachable, fall back to a tag-only reference (never pair a new tag with the old digest) and record the gap - see the 2026-10-23 Learnings entry |
 | `tests/e2e/cli_test.go` | `odh-openshell-cli:<TAG>` image pin used by the CLI e2e | Pin, not a fixture |
 | `DEVELOPMENT.md` | the `for example` tag in the "Controller image OpenShell release label" section | Prose doc example that is kept in sync with the real pin (it matched the current pin exactly before every prior bump); treat as a pin. Added on the v0.1.8-rhaiv.0 bump after the full-image grep missed it and the bare-digits grep caught it |
+| `components/control-plane/Dockerfile` | none | The image build stamps the packaged chart from `OPENSHELL_TAG`: version `<tag without v>+hs`, appVersion `<tag>` (OSG-HELM-07, CICD-IMG-07). Never edit `version`/`appVersion` in `charts/openshell/Chart.yaml`; it keeps upstream's placeholders. `make check` fails if the stamp wiring breaks or the new tag is not valid SemVer |
 | `components/control-plane/internal/helm/values_test.go` | none | Assertions copy the chart's rendered TOML text; update them when a chart upgrade changes spacing (see Learnings log) |
 
 **Do NOT change** version strings that are illustrative fixtures or historical
@@ -345,6 +346,10 @@ refreshes that entry; `make check` rejects a mismatch. A chart-schema change mus
 be investigated rather than retaining the old pin silently.
 
 ## Local patches to the vendored chart
+
+The `+hs` build metadata on the packaged chart version (stamped in
+`components/control-plane/Dockerfile`, OSG-HELM-07) marks that the deployed
+chart carries the patches below. Keep it while any local patch remains.
 
 `charts/openshell/` is documented everywhere else in this skill as "replaced
 wholesale" from the upstream tag - that is true of everything **except** one

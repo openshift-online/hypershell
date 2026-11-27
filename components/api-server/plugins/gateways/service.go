@@ -217,7 +217,6 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 		return nil, errors.DatabaseAdvisoryLock(err)
 	}
 	defer s.lockFactory.Unlock(ctx, lockOwnerID)
-
 	gateway.CaptureTraceContext(ctx)
 
 	// generation is API-server-owned: increment it iff a desired-spec field
@@ -258,7 +257,7 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	// changed field is rejected (PLAT-DATA-23 / SEC-RBAC-18). Re-sending an unchanged
 	// value is a no-op. Only a control-plane internal write bypasses this. Evaluated
 	// under the advisory lock so current is the authoritative stored state.
-	if svcErr := enforceGatewayFieldPolicyUpdate(rbac.GatewayWriterKindFromContext(ctx), current, gateway); svcErr != nil {
+	if svcErr := enforceGatewayFieldPolicyUpdate(ctx, rbac.GatewayWriterKindFromContext(ctx), current, gateway); svcErr != nil {
 		return nil, svcErr
 	}
 	// workspace_mode value semantics apply to every writer class, the control
@@ -364,7 +363,9 @@ func (s *sqlGatewayService) SetGatewayVersion(ctx context.Context, id, version s
 }
 
 // desiredStateChanged reports whether any workload-altering (desired-spec) field
-// differs between the persisted Gateway and the incoming update. Observed fields
+// differs between the persisted Gateway and the incoming update. A changed
+// target_bundle (PLAT-DATA-33) also counts; deployed_bundle (PLAT-DATA-34)
+// never does. Observed fields
 // (status, phase, route_address, generation, observed_generation) and identity
 // fields (name, namespace) are excluded: they do not alter the live
 // workload and must not advance generation. See data-model.spec.md.
@@ -380,7 +381,8 @@ func desiredStateChanged(current, next *Gateway) bool {
 		!jsonEq(current.Oidc, next.Oidc) ||
 		!jsonEq(current.Route, next.Route) ||
 		!strEq(current.CredentialDriver, next.CredentialDriver) ||
-		!strEq(current.WorkspaceMode, next.WorkspaceMode)
+		!strEq(current.WorkspaceMode, next.WorkspaceMode) ||
+		!strEq(current.TargetBundle, next.TargetBundle)
 }
 
 // jsonEq compares two optional JSON documents semantically. Oidc and Route are

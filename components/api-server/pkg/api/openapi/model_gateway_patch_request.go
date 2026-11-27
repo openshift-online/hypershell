@@ -17,9 +17,11 @@ import (
 // checks if the GatewayPatchRequest type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &GatewayPatchRequest{}
 
-// GatewayPatchRequest The only user-writable gateway field on update is name (rename). Every other gateway field is platform-managed and control-plane-only; it is not part of the update contract and is rejected if a user or import caller changes it (data-model.spec.md \"Requirement: Gateway Field Ownership and Write Policy\", PLAT-DATA-23).
+// GatewayPatchRequest The only user-writable gateway field on update is name (rename). Every other gateway field is platform-managed and control-plane-only; it is not part of the update contract and is rejected if a user or import caller changes it (data-model.spec.md \"Requirement: Gateway Field Ownership and Write Policy\", PLAT-DATA-23). A platform:admin caller may also set target_bundle (PLAT-DATA-33, SEC-RBAC-36); an empty string clears it.
 type GatewayPatchRequest struct {
 	Name *string `json:"name,omitempty"`
+	// Release bundle to run, \"<bundle>[#<token>]\". platform:admin only. The token is ignored for matching and only forces a reapply; \"current\" means the bundle the gateway's controller runs.
+	TargetBundle *string `json:"target_bundle,omitempty"`
 }
 
 // NewGatewayPatchRequest instantiates a new GatewayPatchRequest object
@@ -71,6 +73,38 @@ func (o *GatewayPatchRequest) SetName(v string) {
 	o.Name = &v
 }
 
+// GetTargetBundle returns the TargetBundle field value if set, zero value otherwise.
+func (o *GatewayPatchRequest) GetTargetBundle() string {
+	if o == nil || IsNil(o.TargetBundle) {
+		var ret string
+		return ret
+	}
+	return *o.TargetBundle
+}
+
+// GetTargetBundleOk returns a tuple with the TargetBundle field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GatewayPatchRequest) GetTargetBundleOk() (*string, bool) {
+	if o == nil || IsNil(o.TargetBundle) {
+		return nil, false
+	}
+	return o.TargetBundle, true
+}
+
+// HasTargetBundle returns a boolean if a field has been set.
+func (o *GatewayPatchRequest) HasTargetBundle() bool {
+	if o != nil && !IsNil(o.TargetBundle) {
+		return true
+	}
+
+	return false
+}
+
+// SetTargetBundle gets a reference to the given string and assigns it to the TargetBundle field.
+func (o *GatewayPatchRequest) SetTargetBundle(v string) {
+	o.TargetBundle = &v
+}
+
 func (o GatewayPatchRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -83,6 +117,9 @@ func (o GatewayPatchRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Name) {
 		toSerialize["name"] = o.Name
+	}
+	if !IsNil(o.TargetBundle) {
+		toSerialize["target_bundle"] = o.TargetBundle
 	}
 	return toSerialize, nil
 }

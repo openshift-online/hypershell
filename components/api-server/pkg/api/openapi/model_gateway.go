@@ -54,6 +54,10 @@ type Gateway struct {
 	ConsoleAddress *string `json:"console_address,omitempty"`
 	// Runtime version from the last successful gateway health response
 	GatewayVersion *string `json:"gateway_version,omitempty"`
+	// Control-plane build (release bundle name, or controller image) that ran the last successful provisioning pass (PLAT-DATA-34)
+	DeployedBundle *string `json:"deployed_bundle,omitempty"`
+	// Release bundle a platform administrator wants this gateway to run, \"<bundle>[#<token>]\"; the token only forces a reapply, and \"current\" means the controller's own bundle (PLAT-DATA-33). Set through GatewayPatchRequest by platform:admin only.
+	TargetBundle *string `json:"target_bundle,omitempty"`
 	// JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning)
 	Oidc *string `json:"oidc,omitempty"`
 	// JSON-encoded route configuration; platform-managed, control-plane-only (PLAT-DATA-23). The optional certificate sub-key (an empty object) marks a gateway opted in to dedicated per-gateway certificate provisioning; it is provision-time only and cannot be added, removed, or changed after creation.
@@ -688,6 +692,70 @@ func (o *Gateway) SetGatewayVersion(v string) {
 	o.GatewayVersion = &v
 }
 
+// GetDeployedBundle returns the DeployedBundle field value if set, zero value otherwise.
+func (o *Gateway) GetDeployedBundle() string {
+	if o == nil || IsNil(o.DeployedBundle) {
+		var ret string
+		return ret
+	}
+	return *o.DeployedBundle
+}
+
+// GetDeployedBundleOk returns a tuple with the DeployedBundle field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetDeployedBundleOk() (*string, bool) {
+	if o == nil || IsNil(o.DeployedBundle) {
+		return nil, false
+	}
+	return o.DeployedBundle, true
+}
+
+// HasDeployedBundle returns a boolean if a field has been set.
+func (o *Gateway) HasDeployedBundle() bool {
+	if o != nil && !IsNil(o.DeployedBundle) {
+		return true
+	}
+
+	return false
+}
+
+// SetDeployedBundle gets a reference to the given string and assigns it to the DeployedBundle field.
+func (o *Gateway) SetDeployedBundle(v string) {
+	o.DeployedBundle = &v
+}
+
+// GetTargetBundle returns the TargetBundle field value if set, zero value otherwise.
+func (o *Gateway) GetTargetBundle() string {
+	if o == nil || IsNil(o.TargetBundle) {
+		var ret string
+		return ret
+	}
+	return *o.TargetBundle
+}
+
+// GetTargetBundleOk returns a tuple with the TargetBundle field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetTargetBundleOk() (*string, bool) {
+	if o == nil || IsNil(o.TargetBundle) {
+		return nil, false
+	}
+	return o.TargetBundle, true
+}
+
+// HasTargetBundle returns a boolean if a field has been set.
+func (o *Gateway) HasTargetBundle() bool {
+	if o != nil && !IsNil(o.TargetBundle) {
+		return true
+	}
+
+	return false
+}
+
+// SetTargetBundle gets a reference to the given string and assigns it to the TargetBundle field.
+func (o *Gateway) SetTargetBundle(v string) {
+	o.TargetBundle = &v
+}
+
 // GetOidc returns the Oidc field value if set, zero value otherwise.
 func (o *Gateway) GetOidc() string {
 	if o == nil || IsNil(o.Oidc) {
@@ -1164,6 +1232,12 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.GatewayVersion) {
 		toSerialize["gateway_version"] = o.GatewayVersion
+	}
+	if !IsNil(o.DeployedBundle) {
+		toSerialize["deployed_bundle"] = o.DeployedBundle
+	}
+	if !IsNil(o.TargetBundle) {
+		toSerialize["target_bundle"] = o.TargetBundle
 	}
 	if !IsNil(o.Oidc) {
 		toSerialize["oidc"] = o.Oidc

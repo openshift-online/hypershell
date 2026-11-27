@@ -122,12 +122,16 @@ type GatewayReconciler struct {
 	// policyKubeOverride, when set by a test, replaces clientset for the
 	// policy-defaults drift read (clientset is a concrete type).
 	policyKubeOverride kubernetes.Interface
-	mu                 sync.Mutex
-	active             map[string]struct{}
-	dynamicClient      dynamic.Interface
-	clientset          *kubernetes.Clientset
-	grpcConn           *grpc.ClientConn
-	helmClient         *helm.ShellClient
+	// deployedBundle is written to deployed_bundle with observed_generation after
+	// every successful provisioning pass (PLAT-DATA-34); empty leaves the field
+	// unchanged.
+	deployedBundle string
+	mu             sync.Mutex
+	active         map[string]struct{}
+	dynamicClient  dynamic.Interface
+	clientset      *kubernetes.Clientset
+	grpcConn       *grpc.ClientConn
+	helmClient     *helm.ShellClient
 	// isOpenShift is derived from the configured host platform
 	// (HYPERSHELL_CLUSTER_PLATFORM, CTRL-CORE-16), NOT from API discovery, so it
 	// stays stable through discovery failures.
@@ -664,6 +668,21 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		if lastPassFailed {
 			slog.InfoContext(ctx, "Last provisioning pass failed; re-provisioning converged gateway", "gateway_id", event.ResourceID, "phase", gw.GetPhase())
 		}
+	}
+
+	// A target_bundle for another bundle is applied only by a controller that
+	// runs it (PLAT-DATA-33): change nothing, leave the generation pending so a
+	// later controller of that bundle applies it, and say why.
+	if message, blocked := targetBundleBlocked(gw.GetTargetBundle(), r.deployedBundle); blocked {
+		slog.InfoContext(ctx, "Gateway target bundle is not this controller's; leaving it pending",
+			"gateway_id", event.ResourceID, "target_bundle", gw.GetTargetBundle(), "controller_bundle", r.deployedBundle)
+		if !conditionMatches(gw, gateway.ConditionGatewayDeployed, conditionStatusToProto(gateway.StatusPending), message) {
+			conditions := gateway.InitConditions()
+			gateway.SetCondition(conditions, gateway.ConditionGatewayDeployed, gateway.StatusPending, message)
+			r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
+		}
+		outcome = cpotel.OutcomeNoop
+		return nil
 	}
 
 	gatewayClientID, err := gatewayKeycloakClientID(event.ResourceID, gw)
@@ -1319,7 +1338,7 @@ func conditionStatusToProto(s string) pb.ProvisioningConditionStatus {
 }
 
 func (r *GatewayReconciler) updateProvisioningConditions(ctx context.Context, gatewayID string, conditions []gateway.ProvisioningCondition) {
-	client := pb.NewGatewayServiceClient(r.grpcConn)
+	client := r.gatewayServiceClient()
 	pbConditions := make([]*pb.ProvisioningCondition, len(conditions))
 	for i, c := range conditions {
 		pbConditions[i] = &pb.ProvisioningCondition{
@@ -1453,11 +1472,7 @@ func consoleRouteConfig(gw *pb.Gateway) gateway.RouteConfig {
 // only writer of observed_generation, via the same gRPC back-channel used for
 // phase/status/route_address.
 func (r *GatewayReconciler) updateObservedGeneration(ctx context.Context, gatewayID string, generation int64) {
-	client := pb.NewGatewayServiceClient(r.grpcConn)
-	_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
-		Id:                 gatewayID,
-		ObservedGeneration: &generation,
-	})
+	_, err := r.gatewayServiceClient().UpdateGateway(ctx, convergedUpdateRequest(gatewayID, generation, r.deployedBundle))
 	if err != nil {
 		// Intentional soft failure: the gateway stays unconverged (observed_generation
 		// unchanged) and re-applies on the next watch event, so no work is lost.

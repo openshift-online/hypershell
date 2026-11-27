@@ -187,5 +187,35 @@ class DockerfileWiringTest(unittest.TestCase):
             MOD.validate_dockerfile_wiring(text)
 
 
+
+class ChartVersionTest(unittest.TestCase):
+    # Verifies: CICD-IMG-07.01, OSG-HELM-07.01
+    def test_real_dockerfile_stamps_chart_version(self):
+        MOD.validate_chart_version_wiring(MOD.CONTROLLER_DOCKERFILE.read_text())
+
+    # Verifies: CICD-IMG-07.01
+    def test_current_tag_gives_valid_chart_version(self):
+        tag = MOD.expected_tag()
+        version = MOD.chart_version_for_tag(tag)
+        self.assertEqual(version, tag.removeprefix("v") + "+hs")
+
+    def test_example_tag(self):
+        self.assertEqual(MOD.chart_version_for_tag("v0.1.10-rhaiv.0"), "0.1.10-rhaiv.0+hs")
+
+    def test_invalid_tag_is_rejected(self):
+        for tag in ("v0.1", "latest", "v01.2.3"):
+            with self.assertRaises(MOD.LabelError, msg=tag):
+                MOD.chart_version_for_tag(tag)
+
+    # Verifies: CICD-IMG-07.02
+    def test_hardcoded_chart_version_is_rejected(self):
+        for text in (
+            "RUN helm package /c --destination /out\n",
+            'RUN helm package /c --version 0.1.8+hs --app-version "${OPENSHELL_TAG}"\n',
+            'RUN helm package /c --version "${OPENSHELL_TAG#v}+hs"\n',
+        ):
+            with self.assertRaises(MOD.LabelError, msg=text):
+                MOD.validate_chart_version_wiring(text)
+
 if __name__ == "__main__":
     unittest.main()

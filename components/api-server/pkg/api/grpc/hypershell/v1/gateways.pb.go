@@ -292,8 +292,15 @@ type Gateway struct {
 	// dedicated_route records that the gateway requested the dedicated route and
 	// per-gateway wildcard certificate path at creation. Read-only after creation.
 	DedicatedRoute *bool `protobuf:"varint,32,opt,name=dedicated_route,json=dedicatedRoute,proto3,oneof" json:"dedicated_route,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// deployed_bundle names the control-plane build that ran the last successful
+	// provisioning pass (data-model.spec.md PLAT-DATA-34). Control-plane-observed.
+	DeployedBundle *string `protobuf:"bytes,33,opt,name=deployed_bundle,json=deployedBundle,proto3,oneof" json:"deployed_bundle,omitempty"`
+	// target_bundle is the release bundle a platform administrator wants this
+	// gateway to run, "<bundle>[#<token>]" (PLAT-DATA-33). Set through REST PATCH
+	// by platform:admin only; not writable through UpdateGateway.
+	TargetBundle  *string `protobuf:"bytes,34,opt,name=target_bundle,json=targetBundle,proto3,oneof" json:"target_bundle,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Gateway) Reset() {
@@ -499,6 +506,20 @@ func (x *Gateway) GetDedicatedRoute() bool {
 		return *x.DedicatedRoute
 	}
 	return false
+}
+
+func (x *Gateway) GetDeployedBundle() string {
+	if x != nil && x.DeployedBundle != nil {
+		return *x.DeployedBundle
+	}
+	return ""
+}
+
+func (x *Gateway) GetTargetBundle() string {
+	if x != nil && x.TargetBundle != nil {
+		return *x.TargetBundle
+	}
+	return ""
 }
 
 type CreateGatewayRequest struct {
@@ -839,8 +860,11 @@ type UpdateGatewayRequest struct {
 	// workspace_mode may only re-send the stored value; changing it is rejected
 	// and omitting it keeps the stored value.
 	WorkspaceMode *string `protobuf:"bytes,24,opt,name=workspace_mode,json=workspaceMode,proto3,oneof" json:"workspace_mode,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// deployed_bundle is written by the control plane together with
+	// observed_generation after a successful pass (PLAT-DATA-34).
+	DeployedBundle *string `protobuf:"bytes,25,opt,name=deployed_bundle,json=deployedBundle,proto3,oneof" json:"deployed_bundle,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *UpdateGatewayRequest) Reset() {
@@ -1002,6 +1026,13 @@ func (x *UpdateGatewayRequest) GetObservedGeneration() int64 {
 func (x *UpdateGatewayRequest) GetWorkspaceMode() string {
 	if x != nil && x.WorkspaceMode != nil {
 		return *x.WorkspaceMode
+	}
+	return ""
+}
+
+func (x *UpdateGatewayRequest) GetDeployedBundle() string {
+	if x != nil && x.DeployedBundle != nil {
+		return *x.DeployedBundle
 	}
 	return ""
 }
@@ -1967,8 +1998,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\tplacement\"f\n" +
 	"\x1bCapabilitySelectorPlacement\x12\x1a\n" +
 	"\bselector\x18\x01 \x03(\tR\bselector\x12+\n" +
-	"\x11excluded_selector\x18\x02 \x03(\tR\x10excludedSelector\"\xbf\n" +
-	"\n" +
+	"\x11excluded_selector\x18\x02 \x03(\tR\x10excludedSelector\"\xbd\v\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -1999,7 +2029,9 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x13observed_generation\x18\x1b \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01\x12(\n" +
 	"\rrepository_id\x18\x1e \x01(\tH\x0fR\frepositoryId\x88\x01\x01\x12*\n" +
 	"\x0eworkspace_mode\x18\x1f \x01(\tH\x10R\rworkspaceMode\x88\x01\x01\x12,\n" +
-	"\x0fdedicated_route\x18  \x01(\bH\x11R\x0ededicatedRoute\x88\x01\x01B\x0f\n" +
+	"\x0fdedicated_route\x18  \x01(\bH\x11R\x0ededicatedRoute\x88\x01\x01\x12,\n" +
+	"\x0fdeployed_bundle\x18! \x01(\tH\x12R\x0edeployedBundle\x88\x01\x01\x12(\n" +
+	"\rtarget_bundle\x18\" \x01(\tH\x13R\ftargetBundle\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -2017,7 +2049,9 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x14_observed_generationB\x10\n" +
 	"\x0e_repository_idB\x11\n" +
 	"\x0f_workspace_modeB\x12\n" +
-	"\x10_dedicated_route\"\x9e\x06\n" +
+	"\x10_dedicated_routeB\x12\n" +
+	"\x10_deployed_bundleB\x10\n" +
+	"\x0e_target_bundle\"\x9e\x06\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
@@ -2056,7 +2090,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0finclude_deleted\x18\x02 \x01(\bR\x0eincludeDeleted\"F\n" +
 	"\x12GetGatewayResponse\x120\n" +
-	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xf4\a\n" +
+	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xb6\b\n" +
 	"\x14UpdateGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\"\n" +
@@ -2079,7 +2113,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x0fconsole_address\x18\x14 \x01(\tH\rR\x0econsoleAddress\x88\x01\x01\x12]\n" +
 	"\x17provisioning_conditions\x18\x15 \x03(\v2$.hypershell.v1.ProvisioningConditionR\x16provisioningConditions\x124\n" +
 	"\x13observed_generation\x18\x17 \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01\x12*\n" +
-	"\x0eworkspace_mode\x18\x18 \x01(\tH\x0fR\rworkspaceMode\x88\x01\x01B\a\n" +
+	"\x0eworkspace_mode\x18\x18 \x01(\tH\x0fR\rworkspaceMode\x88\x01\x01\x12,\n" +
+	"\x0fdeployed_bundle\x18\x19 \x01(\tH\x10R\x0edeployedBundle\x88\x01\x01B\a\n" +
 	"\x05_nameB\r\n" +
 	"\v_cluster_idB\x0f\n" +
 	"\r_external_dnsB\v\n" +
@@ -2095,7 +2130,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x12_credential_driverB\x12\n" +
 	"\x10_console_addressB\x16\n" +
 	"\x14_observed_generationB\x11\n" +
-	"\x0f_workspace_mode\"I\n" +
+	"\x0f_workspace_modeB\x12\n" +
+	"\x10_deployed_bundle\"I\n" +
 	"\x15UpdateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"U\n" +
 	"\x1fAdjustActiveSandboxCountRequest\x12\x1c\n" +

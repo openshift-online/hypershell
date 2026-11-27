@@ -576,6 +576,7 @@ func init() {
 	db.RegisterMigration(migrationBackfillGatewayWorkspaceModeShared())
 	db.RegisterMigration(migrationAddConvergenceTracking())
 	db.RegisterMigration(migrationReplaceRetiredPlacementLabels())
+	db.RegisterMigration(migrationAddTargetAndDeployedBundle())
 }
 
 // gatewayGRPCResources declares every GatewayService method for authorization.

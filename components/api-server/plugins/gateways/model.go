@@ -63,6 +63,15 @@ type Gateway struct {
 	// created directly through the REST API or hsctl apply. Read-only in the client
 	// contract; set server-side from the import binding, never from a client body.
 	RepositoryId *string `json:"repository_id"`
+	// TargetBundle is the release bundle a platform administrator wants this
+	// gateway to run, "<bundle>[#<token>]" (data-model.spec.md PLAT-DATA-33).
+	// Desired state, writable by platform:admin only; the control plane applies
+	// it only when the bundle (without the token) is its own.
+	TargetBundle *string `json:"target_bundle"`
+	// DeployedBundle names the control-plane build that ran the last successful
+	// provisioning pass (PLAT-DATA-34). Control-plane-observed; never advances
+	// generation.
+	DeployedBundle *string `json:"deployed_bundle"`
 }
 
 type GatewayList []*Gateway

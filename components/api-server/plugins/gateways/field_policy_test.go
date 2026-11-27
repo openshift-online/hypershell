@@ -1,6 +1,7 @@
 package gateways
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
@@ -92,7 +93,7 @@ func TestEnforceGatewayFieldPolicyUpdate(t *testing.T) {
 			if current == nil {
 				current = stored
 			}
-			err := enforceGatewayFieldPolicyUpdate(tc.kind, current, tc.incoming)
+			err := enforceGatewayFieldPolicyUpdate(context.Background(), tc.kind, current, tc.incoming)
 			assertFieldPolicy(t, err, tc.wantField)
 		})
 	}
@@ -111,5 +112,24 @@ func assertFieldPolicy(t *testing.T, err *errors.ServiceError, wantField string)
 	}
 	if !strings.Contains(err.Error(), wantField) {
 		t.Fatalf("expected the rejection to name %q, got %q", wantField, err.Error())
+	}
+}
+
+// target_bundle is checked before the control-plane bypass: only a request
+// marked as a platform:admin caller may change it, for every writer class.
+// Verifies: SEC-RBAC-36.01, SEC-RBAC-36.02, PLAT-DATA-33.07
+func TestFieldPolicyTargetBundleNeedsPlatformAdmin(t *testing.T) {
+	b1, b2 := "b1", "b2"
+	stored := &Gateway{Name: "gw", ClusterId: "c1", TargetBundle: &b1}
+	changed := &Gateway{Name: "gw", ClusterId: "c1", TargetBundle: &b2}
+	for _, kind := range []rbac.GatewayWriterKind{rbac.GatewayWriterUser, rbac.GatewayWriterImport, rbac.GatewayWriterControlPlane} {
+		err := enforceGatewayFieldPolicyUpdate(context.Background(), kind, stored, changed)
+		assertFieldPolicy(t, err, "target_bundle")
+		if err := enforceGatewayFieldPolicyUpdate(context.Background(), kind, stored, stored); err != nil {
+			t.Fatalf("%s resend of stored target_bundle rejected: %v", kind, err)
+		}
+	}
+	if err := enforceGatewayFieldPolicyUpdate(withTargetBundleWriter(context.Background()), rbac.GatewayWriterUser, stored, changed); err != nil {
+		t.Fatalf("platform:admin target_bundle change rejected: %v", err)
 	}
 }

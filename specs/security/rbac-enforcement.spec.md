@@ -474,8 +474,9 @@ Future iterations may expand platform:admin permissions to include these resourc
 
 - GIVEN user A has `platform:admin` only
 - AND user A has no `gateway:owner` binding for gw-1
-- WHEN user A calls `PATCH /api/hypershell/v1/gateways/gw-1`
+- WHEN user A calls `PATCH /api/hypershell/v1/gateways/gw-1` to change any field other than `target_bundle`
 - THEN the response is 403 Forbidden
+- AND a PATCH that changes only `target_bundle` is allowed (SEC-RBAC-36)
 
 #### Scenario: SEC-RBAC-07.06 -- Platform admin cannot create gateways without creator role
 
@@ -2312,6 +2313,37 @@ places by capability selector only.
 - WHEN migrations run (any number of times)
 - THEN exactly one built-in `gateway:cluster-targeting` role SHALL exist
 - AND it SHALL be JWT-synced, global-scope, and not assignable through the RoleBinding API
+
+### Requirement: SEC-RBAC-36 -- Gateway Target Bundle Is Platform-Admin Only
+
+Only a caller holding `platform:admin` SHALL change a gateway's `target_bundle`
+([`platform/data-model.spec.md`](../platform/data-model.spec.md), PLAT-DATA-33).
+
+- The authorization layer SHALL let a `platform:admin` caller send a REST
+  `PATCH` to any gateway. The gateway handler then limits a `platform:admin`
+  caller without a `gateway:owner` or `gateway:admin` binding on that gateway
+  to changing `target_bundle` only; any other changed field is rejected with
+  `403 Forbidden` (SEC-RBAC-07.05).
+- Every other caller that changes `target_bundle` SHALL get `403 Forbidden`
+  naming the field: a `gateway:owner`, `gateway:admin`, or `gateway:viewer`,
+  a declarative import, and the control plane.
+- Re-sending the stored value is a no-op for every caller (SEC-RBAC-18).
+
+#### Scenario: SEC-RBAC-36.01 -- Platform admin may set the target
+- GIVEN a caller holding `platform:admin` with no binding on a gateway
+- WHEN it PATCHes only `target_bundle`
+- THEN the request SHALL succeed
+
+#### Scenario: SEC-RBAC-36.02 -- Gateway roles may not set the target
+- GIVEN a caller holding `gateway:owner` or `gateway:admin` on a gateway, but not `platform:admin`
+- WHEN it PATCHes `target_bundle`
+- THEN the API server SHALL return `403 Forbidden` naming the field
+- AND the gateway's `generation` SHALL be unchanged
+
+#### Scenario: SEC-RBAC-36.03 -- Platform admin may not rename a gateway it does not own
+- GIVEN a caller holding `platform:admin` with no binding on a gateway
+- WHEN it PATCHes `name`
+- THEN the API server SHALL return `403 Forbidden`
 
 ### Requirement: SEC-RBAC-35 -- Purpose Label Gate
 

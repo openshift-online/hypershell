@@ -1975,6 +1975,12 @@
           "type": "boolean"
         },
         {
+          "property": "deployed_bundle",
+          "label": "DEPLOYED BUNDLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "external_dns",
           "label": "EXTERNAL DNS",
           "priority": 0,
@@ -2075,6 +2081,12 @@
         {
           "property": "supervisor_image",
           "label": "SUPERVISOR IMAGE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "target_bundle",
+          "label": "TARGET BUNDLE",
           "priority": 0,
           "type": "string"
         },
@@ -3849,6 +3861,12 @@
           "type": "boolean"
         },
         {
+          "property": "deployed_bundle",
+          "label": "DEPLOYED BUNDLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "external_dns",
           "label": "EXTERNAL DNS",
           "priority": 0,
@@ -3949,6 +3967,12 @@
         {
           "property": "supervisor_image",
           "label": "SUPERVISOR IMAGE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "target_bundle",
+          "label": "TARGET BUNDLE",
           "priority": 0,
           "type": "string"
         },
@@ -10743,6 +10767,12 @@
             "name": "name",
             "type": "string",
             "required": false
+          },
+          {
+            "name": "target_bundle",
+            "type": "string",
+            "required": false,
+            "description": "Release bundle to run, \"\u003cbundle\u003e[#\u003ctoken\u003e]\". platform:admin only. The token is ignored for matching and only forces a reapply; \"current\" means the bundle the gateway's controller runs."
           }
         ]
       },

@@ -5314,6 +5314,18 @@ components:
             description: Runtime version from the last successful gateway health response
             readOnly: true
             type: string
+          deployed_bundle:
+            description: "Control-plane build (release bundle name, or controller\
+              \ image) that ran the last successful provisioning pass (PLAT-DATA-34)"
+            readOnly: true
+            type: string
+          target_bundle:
+            description: "Release bundle a platform administrator wants this gateway\
+              \ to run, \"<bundle>[#<token>]\"; the token only forces a reapply, and\
+              \ \"current\" means the controller's own bundle (PLAT-DATA-33). Set\
+              \ through GatewayPatchRequest by platform:admin only."
+            readOnly: true
+            type: string
           oidc:
             description: JSON-encoded OIDC authentication configuration (auto-populated
               by Keycloak provisioning)
@@ -5406,6 +5418,7 @@ components:
         - namespace
         type: object
       example:
+        deployed_bundle: deployed_bundle
         server_dns_names:
         - server_dns_names
         - server_dns_names
@@ -5414,6 +5427,7 @@ components:
         cluster_id: cluster_id
         updated_at: 2000-01-23T04:56:07.000+00:00
         can_delete: true
+        target_bundle: target_bundle
         repository_id: repository_id
         id: id
         href: href
@@ -5476,7 +5490,8 @@ components:
         id: id
         href: href
         items:
-        - server_dns_names:
+        - deployed_bundle: deployed_bundle
+          server_dns_names:
           - server_dns_names
           - server_dns_names
           created_at: 2000-01-23T04:56:07.000+00:00
@@ -5484,6 +5499,7 @@ components:
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
           can_delete: true
+          target_bundle: target_bundle
           repository_id: repository_id
           id: id
           href: href
@@ -5516,7 +5532,8 @@ components:
           name: name
           namespace: namespace
           status: status
-        - server_dns_names:
+        - deployed_bundle: deployed_bundle
+          server_dns_names:
           - server_dns_names
           - server_dns_names
           created_at: 2000-01-23T04:56:07.000+00:00
@@ -5524,6 +5541,7 @@ components:
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
           can_delete: true
+          target_bundle: target_bundle
           repository_id: repository_id
           id: id
           href: href
@@ -5562,11 +5580,18 @@ components:
         \ Every other gateway field is platform-managed and control-plane-only; it\
         \ is not part of the update contract and is rejected if a user or import caller\
         \ changes it (data-model.spec.md \"Requirement: Gateway Field Ownership and\
-        \ Write Policy\", PLAT-DATA-23)."
+        \ Write Policy\", PLAT-DATA-23). A platform:admin caller may also set target_bundle\
+        \ (PLAT-DATA-33, SEC-RBAC-36); an empty string clears it."
       example:
         name: name
+        target_bundle: target_bundle
       properties:
         name:
+          type: string
+        target_bundle:
+          description: "Release bundle to run, \"<bundle>[#<token>]\". platform:admin\
+            \ only. The token is ignored for matching and only forces a reapply; \"\
+            current\" means the bundle the gateway's controller runs."
           type: string
       type: object
     GatewayPlacementIntent:

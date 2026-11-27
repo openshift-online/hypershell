@@ -336,14 +336,17 @@ func TestIsAuthorized_PlatformAdminCanDeleteAnyGateway(t *testing.T) {
 }
 
 // Verifies: SEC-RBAC-07.05
-func TestIsAuthorized_PlatformAdminCannotModifyGateway(t *testing.T) {
+func TestIsAuthorized_PlatformAdminPatchReachesHandler(t *testing.T) {
 	gwID := "gw-xyz"
 	bindings := []BindingSummary{
 		{RoleName: "platform:admin", Scope: "global"},
 	}
 
-	if isAuthorized(http.MethodPatch, "gateways", gwID, gwID, bindings, nil, false) {
-		t.Error("platform:admin must not be able to PATCH gateways without gateway:owner")
+	// The middleware now admits the PATCH so target_bundle can be set
+	// (SEC-RBAC-36); the handler rejects any other field (SEC-RBAC-07.05,
+	// covered by the gateway target-bundle integration test).
+	if !isAuthorized(http.MethodPatch, "gateways", gwID, gwID, bindings, nil, false) {
+		t.Error("platform:admin PATCH must reach the handler")
 	}
 }
 
@@ -1204,5 +1207,15 @@ func TestCanReadGatewayResources(t *testing.T) {
 	}
 	if CanReadGatewayResources([]BindingSummary{globalBinding("platform:admin")}, "") {
 		t.Error("an empty gateway id must never be readable")
+	}
+}
+
+// The middleware lets platform:admin PATCH any gateway so it can set
+// target_bundle; the handler limits it to that field.
+// Verifies: SEC-RBAC-36.01, SEC-RBAC-07.05
+func TestIsAuthorized_PlatformAdminMayPatchForTargetBundle(t *testing.T) {
+	bindings := []BindingSummary{{RoleName: "platform:admin", Scope: "global"}}
+	if !isAuthorized(http.MethodPatch, "gateways", "gw-1", "gw-1", bindings, nil, false) {
+		t.Error("platform:admin must reach the PATCH handler to set target_bundle")
 	}
 }

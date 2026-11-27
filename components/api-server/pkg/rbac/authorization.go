@@ -735,6 +735,13 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 	}
 
 	if resource == "gateways" && gatewayID != "" {
+		// platform:admin may PATCH any gateway so it can set target_bundle
+		// (SEC-RBAC-36). The gateway handler limits a platform:admin caller
+		// without a gateway binding to that one field (SEC-RBAC-07.05), and
+		// can_edit (CanEditGateway) stays false for it.
+		if method == http.MethodPatch && hasPlatformAdmin(bindings) {
+			return true
+		}
 		return isGatewayAuthorized(method, gatewayID, bindings)
 	}
 

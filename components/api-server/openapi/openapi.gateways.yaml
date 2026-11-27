@@ -325,6 +325,18 @@ components:
               type: string
               readOnly: true
               description: Runtime version from the last successful gateway health response
+            deployed_bundle:
+              type: string
+              readOnly: true
+              description: Control-plane build (release bundle name, or controller image) that ran the last successful provisioning pass (PLAT-DATA-34)
+            target_bundle:
+              type: string
+              readOnly: true
+              description: >-
+                Release bundle a platform administrator wants this gateway to run,
+                "<bundle>[#<token>]"; the token only forces a reapply, and "current"
+                means the controller's own bundle (PLAT-DATA-33). Set through
+                GatewayPatchRequest by platform:admin only.
             oidc:
               type: string
               readOnly: true
@@ -537,10 +549,17 @@ components:
         gateway field is platform-managed and control-plane-only; it is not part of the
         update contract and is rejected if a user or import caller changes it
         (data-model.spec.md "Requirement: Gateway Field Ownership and Write Policy",
-        PLAT-DATA-23).
+        PLAT-DATA-23). A platform:admin caller may also set target_bundle
+        (PLAT-DATA-33, SEC-RBAC-36); an empty string clears it.
       properties:
         name:
           type: string
+        target_bundle:
+          type: string
+          description: >-
+            Release bundle to run, "<bundle>[#<token>]". platform:admin only. The
+            token is ignored for matching and only forces a reapply; "current"
+            means the bundle the gateway's controller runs.
   parameters:
       id:
         name: id

@@ -217,6 +217,12 @@ type Config struct {
 	// Policies tab link in denial text (HYPERSHELL_POLICY_CONSOLE_URL, optional).
 	PolicyConsoleURL string
 
+	// ReleaseBundle is the release bundle identity this controller build belongs
+	// to (HYPERSHELL_BUNDLE, optional). It is written to each gateway's
+	// deployed_bundle after a successful provisioning pass; when empty the
+	// controller's own image reference is written instead (PLAT-DATA-34).
+	ReleaseBundle string
+
 	// Helm chart configuration
 	HelmChartPath string
 
@@ -353,6 +359,7 @@ func Load() (*Config, error) {
 		PolicyEventsBindAddress: getEnv("HYPERSHELL_POLICY_EVENTS_BIND_ADDRESS", "0.0.0.0:9444"),
 		PolicyEventsAddress:     getEnv("HYPERSHELL_POLICY_EVENTS_ADDRESS", ""),
 		PolicyConsoleURL:        strings.TrimRight(getEnv("HYPERSHELL_POLICY_CONSOLE_URL", ""), "/"),
+		ReleaseBundle:           strings.TrimSpace(getEnv("HYPERSHELL_BUNDLE", "")),
 
 		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
 		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),

@@ -262,6 +262,29 @@ only the Dockerfile text, to confirm the value.
 - WHEN build or release validation runs
 - THEN validation passes
 
+### Requirement: CICD-IMG-07 -- Packaged Chart Version Comes From OPENSHELL_TAG
+
+The controller image build SHALL derive the packaged OpenShell chart version
+from the same `OPENSHELL_TAG` build argument as the
+`app.hypershell.openshell.version` label. The version format is defined in
+[`openshell-gateway-helm-adoption.spec.md`](./openshell-gateway-helm-adoption.spec.md),
+OSG-HELM-07. `make check` SHALL fail when the Dockerfile stops deriving the
+version from `OPENSHELL_TAG`, or when the version derived from the
+`OPENSHELL_TAG` in `OPENSHELL_VERSION` is not a valid SemVer 2 version.
+
+#### Scenario: CICD-IMG-07.01 -- Release bump flows into the chart version
+
+- GIVEN `OPENSHELL_TAG` is updated to a new OpenShell release
+- WHEN the controller image is rebuilt
+- THEN the packaged chart version and appVersion follow the new tag
+- AND no other manually maintained version string was edited
+
+#### Scenario: CICD-IMG-07.02 -- A hardcoded chart version fails the check
+
+- GIVEN a Dockerfile that packages the chart without the derived version
+- WHEN `make check` runs
+- THEN the check SHALL fail and name the missing wiring
+
 ### Requirement: CICD-IMG-06 -- Label Is Documented With An Inspection Example
 
 Repository documentation SHALL describe `app.hypershell.openshell.version`, state
