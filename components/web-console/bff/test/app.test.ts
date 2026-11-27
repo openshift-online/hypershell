@@ -5,7 +5,11 @@ import path from "node:path";
 
 import type { FastifyInstance } from "fastify";
 
-import { buildApp } from "../src/app.js";
+import {
+  buildApp,
+  SERVER_CONNECTION_TIMEOUT_MS,
+  SERVER_REQUEST_TIMEOUT_MS,
+} from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
 
 async function waitFor(
@@ -147,6 +151,12 @@ describe("web-console BFF", () => {
     expect(live.statusCode).toBe(200);
     expect(live.headers["cache-control"]).toBe("no-store");
     expect(ready.statusCode).toBe(200);
+  });
+
+  it("keeps proxy sockets open long enough for request timeouts", () => {
+    expect(SERVER_CONNECTION_TIMEOUT_MS).toBeGreaterThan(
+      SERVER_REQUEST_TIMEOUT_MS,
+    );
   });
 
   it("serves known application routes with an enforcing CSP and no-store HTML", async () => {
