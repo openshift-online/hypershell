@@ -3,6 +3,8 @@
 # metrics. Kind has one cluster and no federation, so these rules read the
 # local kube-state-metrics directly and add a fixed cluster="kind" label. The
 # series carry no provider label, so the rate card "defaults" price them.
+# The kube-state-metrics ServiceMonitor does not honor labels, so a pod's own
+# namespace arrives as exported_namespace; the namespace rules copy it back.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -20,6 +22,6 @@ spec:
         - record: hypershell:cluster_memory_allocatable:bytes
           expr: label_replace(sum(kube_node_status_allocatable{resource="memory"}), "cluster", "kind", "", "")
         - record: hypershell:namespace_cpu_requests:cores
-          expr: label_replace(sum by (namespace) (kube_pod_container_resource_requests{resource="cpu"}), "cluster", "kind", "", "")
+          expr: sum by (cluster, namespace) (label_replace(label_replace(kube_pod_container_resource_requests{resource="cpu"}, "namespace", "$1", "exported_namespace", "(.+)"), "cluster", "kind", "", ""))
         - record: hypershell:namespace_memory_requests:bytes
-          expr: label_replace(sum by (namespace) (kube_pod_container_resource_requests{resource="memory"}), "cluster", "kind", "", "")
+          expr: sum by (cluster, namespace) (label_replace(label_replace(kube_pod_container_resource_requests{resource="memory"}, "namespace", "$1", "exported_namespace", "(.+)"), "cluster", "kind", "", ""))
