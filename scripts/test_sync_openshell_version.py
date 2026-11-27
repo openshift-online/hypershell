@@ -310,6 +310,34 @@ class SandboxImageSyncTest(unittest.TestCase):
         self.assertIn("OPENSHELL_CONSOLE_DIGEST must", output.getvalue())
 
 
+class ChartVersionTest(unittest.TestCase):
+    # Verifies: OSG-HELM-02.03
+
+    def test_strips_leading_v(self):
+        self.assertEqual(MOD.chart_version("v0.1.8-rhaiv.0"), "0.1.8-rhaiv.0")
+        self.assertEqual(MOD.chart_version("v1.2.3"), "1.2.3")
+        self.assertEqual(MOD.chart_version("1.2.3+build.5"), "1.2.3+build.5")
+
+    def test_rejects_non_semver(self):
+        for tag in ("latest", "v1.2", "v01.2.3", "v1.2.3-", "v1.2.3-rc..1", "vv1.2.3", ""):
+            with self.subTest(tag=tag), self.assertRaises(ValueError):
+                MOD.chart_version(tag)
+
+    def test_current_openshell_tag_is_a_chart_version(self):
+        MOD.chart_version(MOD.parse_openshell_version()["OPENSHELL_TAG"])
+
+    def test_main_fails_on_non_semver_tag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            version = Path(tmp) / "OPENSHELL_VERSION"
+            version.write_text("OPENSHELL_TAG=main\n")
+            output = io.StringIO()
+            with patch.object(MOD, "VERSION_FILE", version), patch.object(
+                MOD.sys, "argv", ["sync_openshell_version.py"]
+            ), contextlib.redirect_stdout(output):
+                self.assertEqual(MOD.main(), 1)
+        self.assertIn("SemVer 2 chart version", output.getvalue())
+
+
 TEKTON_PIPELINE = """\
   - name: path-context
     value: .
