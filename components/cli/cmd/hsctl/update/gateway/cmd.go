@@ -16,8 +16,9 @@ import (
 )
 
 var args struct {
-	name     string
-	bodyFile string
+	name         string
+	targetBundle string
+	bodyFile     string
 }
 
 var Cmd = &cobra.Command{
@@ -26,7 +27,7 @@ var Cmd = &cobra.Command{
 	Short:   "Update a gateway by ID",
 	Long: "Update a gateway by ID using PATCH. Only the flags that are set are sent.\n\n" +
 		"Examples:\n" +
-		"  hsctl update gateway ID --name <value>\n" +
+		"  hsctl update gateway ID --name <value> --target-bundle <value>\n" +
 		"  hsctl update gateway ID --body request.json",
 	Args: cobra.ExactArgs(1),
 	RunE: run,
@@ -35,6 +36,7 @@ var Cmd = &cobra.Command{
 func init() {
 	fs := Cmd.Flags()
 	fs.StringVar(&args.name, "name", "", "name value.")
+	fs.StringVar(&args.targetBundle, "target-bundle", "", "target_bundle value.")
 	fs.StringVar(&args.bodyFile, "body", "", "File containing the request body as JSON.")
 }
 
@@ -52,6 +54,9 @@ func run(cmd *cobra.Command, argv []string) error {
 		request := map[string]interface{}{}
 		if cmd.Flags().Changed("name") {
 			request["name"] = args.name
+		}
+		if cmd.Flags().Changed("target-bundle") {
+			request["target_bundle"] = args.targetBundle
 		}
 		if len(request) == 0 {
 			return fmt.Errorf("nothing to update: set at least one field flag or pass --body")

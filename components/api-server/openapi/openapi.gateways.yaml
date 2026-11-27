@@ -254,50 +254,6 @@ paths:
                 $ref: 'openapi.yaml#/components/schemas/Error'
     parameters:
       - $ref: '#/components/parameters/id'
-  /api/hypershell/v1/gateways/{id}/redeploy:
-    post:
-      operationId: redeployGateway
-      summary: Redeploy a gateway with the control plane's current chart and images
-      description: |
-        Records an administrator redeploy request (data-model.spec.md PLAT-DATA-33).
-        The API server sets redeploy_requested_at and advances generation, so the
-        control plane applies the gateway again with its current chart and default
-        images. Allowed for platform:admin only (SEC-RBAC-36). No request body.
-      security:
-        - Bearer: []
-      responses:
-        '200':
-          description: Redeploy recorded; the gateway is returned with its new generation
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Gateway'
-        '401':
-          description: Auth token is invalid
-          content:
-            application/json:
-              schema:
-                $ref: 'openapi.yaml#/components/schemas/Error'
-        '403':
-          description: Caller is not a platform administrator
-          content:
-            application/json:
-              schema:
-                $ref: 'openapi.yaml#/components/schemas/Error'
-        '404':
-          description: No gateway with specified id exists, or it was deleted
-          content:
-            application/json:
-              schema:
-                $ref: 'openapi.yaml#/components/schemas/Error'
-        '500':
-          description: Unexpected error recording the redeploy
-          content:
-            application/json:
-              schema:
-                $ref: 'openapi.yaml#/components/schemas/Error'
-    parameters:
-      - $ref: '#/components/parameters/id'
 components:
   schemas:
     # NEW SCHEMA START
@@ -373,11 +329,14 @@ components:
               type: string
               readOnly: true
               description: Control-plane build (release bundle name, or controller image) that ran the last successful provisioning pass (PLAT-DATA-34)
-            redeploy_requested_at:
+            target_bundle:
               type: string
-              format: date-time
               readOnly: true
-              description: Time of the last administrator redeploy request (PLAT-DATA-33)
+              description: >-
+                Release bundle a platform administrator wants this gateway to run,
+                "<bundle>[#<token>]"; the token only forces a reapply, and "current"
+                means the controller's own bundle (PLAT-DATA-33). Set through
+                GatewayPatchRequest by platform:admin only.
             oidc:
               type: string
               readOnly: true
@@ -590,10 +549,17 @@ components:
         gateway field is platform-managed and control-plane-only; it is not part of the
         update contract and is rejected if a user or import caller changes it
         (data-model.spec.md "Requirement: Gateway Field Ownership and Write Policy",
-        PLAT-DATA-23).
+        PLAT-DATA-23). A platform:admin caller may also set target_bundle
+        (PLAT-DATA-33, SEC-RBAC-36); an empty string clears it.
       properties:
         name:
           type: string
+        target_bundle:
+          type: string
+          description: >-
+            Release bundle to run, "<bundle>[#<token>]". platform:admin only. The
+            token is ignored for matching and only forces a reapply; "current"
+            means the bundle the gateway's controller runs.
   parameters:
       id:
         name: id

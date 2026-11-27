@@ -5,6 +5,7 @@
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | Pointer to **string** |  | [optional]
+**TargetBundle** | Pointer to **string** | Release bundle to run, \&quot;&lt;bundle&gt;[#&lt;token&gt;]\&quot;. platform:admin only. The token is ignored for matching and only forces a reapply; \&quot;current\&quot; means the bundle the gateway&#39;s controller runs. | [optional]
 
 ## Methods
 
@@ -49,6 +50,31 @@ SetName sets Name field to given value.
 `func (o *GatewayPatchRequest) HasName() bool`
 
 HasName returns a boolean if a field has been set.
+
+### GetTargetBundle
+
+`func (o *GatewayPatchRequest) GetTargetBundle() string`
+
+GetTargetBundle returns the TargetBundle field if non-nil, zero value otherwise.
+
+### GetTargetBundleOk
+
+`func (o *GatewayPatchRequest) GetTargetBundleOk() (*string, bool)`
+
+GetTargetBundleOk returns a tuple with the TargetBundle field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetTargetBundle
+
+`func (o *GatewayPatchRequest) SetTargetBundle(v string)`
+
+SetTargetBundle sets TargetBundle field to given value.
+
+### HasTargetBundle
+
+`func (o *GatewayPatchRequest) HasTargetBundle() bool`
+
+HasTargetBundle returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

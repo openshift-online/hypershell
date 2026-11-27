@@ -1,6 +1,7 @@
 package gateways
 
 import (
+	"context"
 	"strings"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
@@ -36,6 +37,10 @@ const (
 	fieldObserved
 	// fieldServerOwned is owned by the API server/DB and written by no caller.
 	fieldServerOwned
+	// fieldPlatformAdmin is desired state that only a platform:admin REST
+	// caller may change (target_bundle, PLAT-DATA-33 / SEC-RBAC-36); every
+	// other writer class, the control plane included, is rejected.
+	fieldPlatformAdmin
 )
 
 // gatewayFieldOwnership maps each Gateway model json tag to its ownership class. Keep it
@@ -46,7 +51,10 @@ var gatewayFieldOwnership = map[string]gatewayFieldClass{
 	"cluster_id":      fieldUserWritable, // create-only (placement); control-plane-assigned on late-bind, not user-writable on update
 	"placement":       fieldUserWritable, // create-only
 	"dedicated_route": fieldUserWritable, // create-only
-	"workspace_mode":  fieldUserWritable, // create-only, operator value only, gated by gateway:operator-workspace-creator (OSG-OPWS-01); otherwise server-defaulted to managed and immutable
+	"workspace_mode":  fieldUserWritable,
+
+	// Platform-admin desired state.
+	"target_bundle": fieldPlatformAdmin, // create-only, operator value only, gated by gateway:operator-workspace-creator (OSG-OPWS-01); otherwise server-defaulted to managed and immutable
 
 	// Platform-managed (control-plane-only desired workload spec).
 	"external_dns":      fieldPlatformManaged,
@@ -74,9 +82,6 @@ var gatewayFieldOwnership = map[string]gatewayFieldClass{
 	"namespace":     fieldServerOwned,
 	"generation":    fieldServerOwned,
 	"repository_id": fieldServerOwned,
-	// redeploy_requested_at is set only by the admin redeploy action
-	// (PLAT-DATA-33); Replace always keeps the stored value.
-	"redeploy_requested_at": fieldServerOwned,
 }
 
 // createWorkloadFields are the platform-managed workload fields that are never set by
@@ -127,7 +132,13 @@ func enforceGatewayFieldPolicyCreate(kind rbac.GatewayWriterKind, incoming *Gate
 // field outside the update allowlist (name). Re-sending an unchanged value is a no-op,
 // so idempotent clients that resend the whole object still work (PLAT-DATA-23.03). A
 // control-plane internal write retains full access.
-func enforceGatewayFieldPolicyUpdate(kind rbac.GatewayWriterKind, current, incoming *Gateway) *errors.ServiceError {
+func enforceGatewayFieldPolicyUpdate(ctx context.Context, kind rbac.GatewayWriterKind, current, incoming *Gateway) *errors.ServiceError {
+	// target_bundle is checked before the control-plane bypass: only a
+	// platform:admin REST caller, marked by the handler, may change it
+	// (SEC-RBAC-36). Re-sending the stored value is a no-op.
+	if !strEq(current.TargetBundle, incoming.TargetBundle) && !targetBundleWriterFromContext(ctx) {
+		return errors.Forbidden("field %q can be changed only by a platform:admin caller", "target_bundle")
+	}
 	if kind.Privileged() {
 		return nil
 	}
@@ -271,4 +282,18 @@ func enforceGatewayWorkspaceUpdateSemantics(current, next *Gateway) *errors.Serv
 	}
 	next.WorkspaceMode = &trimmed
 	return nil
+}
+
+type targetBundleWriterKey struct{}
+
+// withTargetBundleWriter marks a request whose caller holds platform:admin, so
+// the update funnel accepts a target_bundle change (PLAT-DATA-33,
+// SEC-RBAC-36). Only the REST PATCH handler sets it, after its role check.
+func withTargetBundleWriter(ctx context.Context) context.Context {
+	return context.WithValue(ctx, targetBundleWriterKey{}, true)
+}
+
+func targetBundleWriterFromContext(ctx context.Context) bool {
+	allowed, _ := ctx.Value(targetBundleWriterKey{}).(bool)
+	return allowed
 }

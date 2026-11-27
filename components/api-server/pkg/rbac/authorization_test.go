@@ -336,14 +336,17 @@ func TestIsAuthorized_PlatformAdminCanDeleteAnyGateway(t *testing.T) {
 }
 
 // Verifies: SEC-RBAC-07.05
-func TestIsAuthorized_PlatformAdminCannotModifyGateway(t *testing.T) {
+func TestIsAuthorized_PlatformAdminPatchReachesHandler(t *testing.T) {
 	gwID := "gw-xyz"
 	bindings := []BindingSummary{
 		{RoleName: "platform:admin", Scope: "global"},
 	}
 
-	if isAuthorized(http.MethodPatch, "gateways", gwID, gwID, bindings, nil, false) {
-		t.Error("platform:admin must not be able to PATCH gateways without gateway:owner")
+	// The middleware now admits the PATCH so target_bundle can be set
+	// (SEC-RBAC-36); the handler rejects any other field (SEC-RBAC-07.05,
+	// covered by the gateway target-bundle integration test).
+	if !isAuthorized(http.MethodPatch, "gateways", gwID, gwID, bindings, nil, false) {
+		t.Error("platform:admin PATCH must reach the handler")
 	}
 }
 
@@ -1207,32 +1210,12 @@ func TestCanReadGatewayResources(t *testing.T) {
 	}
 }
 
-// Verifies: SEC-RBAC-36.01, SEC-RBAC-36.02
-func TestIsAuthorized_GatewayRedeployIsPlatformAdminOnly(t *testing.T) {
-	gwID := "gw-redeploy"
-	gwBinding := func(role string) BindingSummary {
-		id := gwID
-		return BindingSummary{RoleName: role, Scope: "gateway", GatewayID: &id}
-	}
-	cases := []struct {
-		name     string
-		method   string
-		bindings []BindingSummary
-		want     bool
-	}{
-		{"platform admin", http.MethodPost, []BindingSummary{{RoleName: "platform:admin", Scope: "global"}}, true},
-		{"platform admin wrong method", http.MethodGet, []BindingSummary{{RoleName: "platform:admin", Scope: "global"}}, false},
-		{"gateway owner", http.MethodPost, []BindingSummary{gwBinding("gateway:owner")}, false},
-		{"gateway admin", http.MethodPost, []BindingSummary{gwBinding("gateway:admin")}, false},
-		{"gateway viewer", http.MethodPost, []BindingSummary{gwBinding("gateway:viewer")}, false},
-		{"gateway creator", http.MethodPost, []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}, false},
-		{"no binding", http.MethodPost, nil, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := isAuthorized(tc.method, "gateway_redeploy", gwID, "", tc.bindings, nil, false); got != tc.want {
-				t.Errorf("isAuthorized = %v, want %v", got, tc.want)
-			}
-		})
+// The middleware lets platform:admin PATCH any gateway so it can set
+// target_bundle; the handler limits it to that field.
+// Verifies: SEC-RBAC-36.01, SEC-RBAC-07.05
+func TestIsAuthorized_PlatformAdminMayPatchForTargetBundle(t *testing.T) {
+	bindings := []BindingSummary{{RoleName: "platform:admin", Scope: "global"}}
+	if !isAuthorized(http.MethodPatch, "gateways", "gw-1", "gw-1", bindings, nil, false) {
+		t.Error("platform:admin must reach the PATCH handler to set target_bundle")
 	}
 }

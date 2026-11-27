@@ -56,8 +56,8 @@ type Gateway struct {
 	GatewayVersion *string `json:"gateway_version,omitempty"`
 	// Control-plane build (release bundle name, or controller image) that ran the last successful provisioning pass (PLAT-DATA-34)
 	DeployedBundle *string `json:"deployed_bundle,omitempty"`
-	// Time of the last administrator redeploy request (PLAT-DATA-33)
-	RedeployRequestedAt *time.Time `json:"redeploy_requested_at,omitempty"`
+	// Release bundle a platform administrator wants this gateway to run, \"<bundle>[#<token>]\"; the token only forces a reapply, and \"current\" means the controller's own bundle (PLAT-DATA-33). Set through GatewayPatchRequest by platform:admin only.
+	TargetBundle *string `json:"target_bundle,omitempty"`
 	// JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning)
 	Oidc *string `json:"oidc,omitempty"`
 	// JSON-encoded route configuration; platform-managed, control-plane-only (PLAT-DATA-23). The optional certificate sub-key (an empty object) marks a gateway opted in to dedicated per-gateway certificate provisioning; it is provision-time only and cannot be added, removed, or changed after creation.
@@ -724,36 +724,36 @@ func (o *Gateway) SetDeployedBundle(v string) {
 	o.DeployedBundle = &v
 }
 
-// GetRedeployRequestedAt returns the RedeployRequestedAt field value if set, zero value otherwise.
-func (o *Gateway) GetRedeployRequestedAt() time.Time {
-	if o == nil || IsNil(o.RedeployRequestedAt) {
-		var ret time.Time
+// GetTargetBundle returns the TargetBundle field value if set, zero value otherwise.
+func (o *Gateway) GetTargetBundle() string {
+	if o == nil || IsNil(o.TargetBundle) {
+		var ret string
 		return ret
 	}
-	return *o.RedeployRequestedAt
+	return *o.TargetBundle
 }
 
-// GetRedeployRequestedAtOk returns a tuple with the RedeployRequestedAt field value if set, nil otherwise
+// GetTargetBundleOk returns a tuple with the TargetBundle field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Gateway) GetRedeployRequestedAtOk() (*time.Time, bool) {
-	if o == nil || IsNil(o.RedeployRequestedAt) {
+func (o *Gateway) GetTargetBundleOk() (*string, bool) {
+	if o == nil || IsNil(o.TargetBundle) {
 		return nil, false
 	}
-	return o.RedeployRequestedAt, true
+	return o.TargetBundle, true
 }
 
-// HasRedeployRequestedAt returns a boolean if a field has been set.
-func (o *Gateway) HasRedeployRequestedAt() bool {
-	if o != nil && !IsNil(o.RedeployRequestedAt) {
+// HasTargetBundle returns a boolean if a field has been set.
+func (o *Gateway) HasTargetBundle() bool {
+	if o != nil && !IsNil(o.TargetBundle) {
 		return true
 	}
 
 	return false
 }
 
-// SetRedeployRequestedAt gets a reference to the given time.Time and assigns it to the RedeployRequestedAt field.
-func (o *Gateway) SetRedeployRequestedAt(v time.Time) {
-	o.RedeployRequestedAt = &v
+// SetTargetBundle gets a reference to the given string and assigns it to the TargetBundle field.
+func (o *Gateway) SetTargetBundle(v string) {
+	o.TargetBundle = &v
 }
 
 // GetOidc returns the Oidc field value if set, zero value otherwise.
@@ -1236,8 +1236,8 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.DeployedBundle) {
 		toSerialize["deployed_bundle"] = o.DeployedBundle
 	}
-	if !IsNil(o.RedeployRequestedAt) {
-		toSerialize["redeploy_requested_at"] = o.RedeployRequestedAt
+	if !IsNil(o.TargetBundle) {
+		toSerialize["target_bundle"] = o.TargetBundle
 	}
 	if !IsNil(o.Oidc) {
 		toSerialize["oidc"] = o.Oidc

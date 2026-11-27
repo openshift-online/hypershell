@@ -44,7 +44,7 @@ func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit 
 		ConsoleAddress:     gateway.ConsoleAddress,
 		GatewayVersion:     gateway.GatewayVersion,
 		DeployedBundle:     gateway.DeployedBundle,
-		RedeployRequestedAt: gateway.RedeployRequestedAt,
+		TargetBundle:       gateway.TargetBundle,
 		Oidc:               gateway.Oidc,
 		Route:              gateway.Route,
 		DedicatedRoute:     gateway.DedicatedRoute,

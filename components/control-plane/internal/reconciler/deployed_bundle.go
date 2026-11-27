@@ -1,6 +1,7 @@
 package reconciler
 
 import (
+	"fmt"
 	"strings"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -37,4 +38,41 @@ func convergedUpdateRequest(gatewayID string, generation int64, bundle string) *
 		req.DeployedBundle = &bundle
 	}
 	return req
+}
+
+// currentTargetBundle is the reserved target_bundle that means "the bundle
+// this gateway's controller runs" (PLAT-DATA-33.06), for clusters without a
+// bundle name such as Kind and ephemeral PR environments.
+const currentTargetBundle = "current"
+
+// targetBundleBase drops the "#<token>" reapply suffix (PLAT-DATA-33): the
+// token only forces a new generation and is never compared.
+func targetBundleBase(target string) string {
+	base, _, _ := strings.Cut(target, "#")
+	return strings.TrimSpace(base)
+}
+
+// targetBundleBlocked reports whether this controller must not apply the
+// gateway because its target_bundle names another bundle (PLAT-DATA-33.03),
+// and the user-facing reason. No target and "current" never block.
+func targetBundleBlocked(target, own string) (string, bool) {
+	base := targetBundleBase(target)
+	if base == "" || base == currentTargetBundle || base == own {
+		return "", false
+	}
+	if own == "" {
+		return fmt.Sprintf("target bundle %s is not available on this cluster; its controller has no bundle identity", base), true
+	}
+	return fmt.Sprintf("target bundle %s is not available on this cluster; its controller runs %s", base, own), true
+}
+
+// conditionMatches reports whether gw already shows step with status and
+// message, so a repeated pass does not rewrite (and re-trigger) it.
+func conditionMatches(gw *pb.Gateway, step string, status pb.ProvisioningConditionStatus, message string) bool {
+	for _, c := range gw.GetProvisioningConditions() {
+		if c.GetType() == step {
+			return c.GetConditionStatus() == status && c.GetMessage() == message
+		}
+	}
+	return false
 }

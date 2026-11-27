@@ -670,6 +670,21 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		}
 	}
 
+	// A target_bundle for another bundle is applied only by a controller that
+	// runs it (PLAT-DATA-33): change nothing, leave the generation pending so a
+	// later controller of that bundle applies it, and say why.
+	if message, blocked := targetBundleBlocked(gw.GetTargetBundle(), r.deployedBundle); blocked {
+		slog.InfoContext(ctx, "Gateway target bundle is not this controller's; leaving it pending",
+			"gateway_id", event.ResourceID, "target_bundle", gw.GetTargetBundle(), "controller_bundle", r.deployedBundle)
+		if !conditionMatches(gw, gateway.ConditionGatewayDeployed, conditionStatusToProto(gateway.StatusPending), message) {
+			conditions := gateway.InitConditions()
+			gateway.SetCondition(conditions, gateway.ConditionGatewayDeployed, gateway.StatusPending, message)
+			r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
+		}
+		outcome = cpotel.OutcomeNoop
+		return nil
+	}
+
 	gatewayClientID, err := gatewayKeycloakClientID(event.ResourceID, gw)
 	if err != nil {
 		outcome = cpotel.OutcomeFailed
@@ -1323,7 +1338,7 @@ func conditionStatusToProto(s string) pb.ProvisioningConditionStatus {
 }
 
 func (r *GatewayReconciler) updateProvisioningConditions(ctx context.Context, gatewayID string, conditions []gateway.ProvisioningCondition) {
-	client := pb.NewGatewayServiceClient(r.grpcConn)
+	client := r.gatewayServiceClient()
 	pbConditions := make([]*pb.ProvisioningCondition, len(conditions))
 	for i, c := range conditions {
 		pbConditions[i] = &pb.ProvisioningCondition{

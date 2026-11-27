@@ -98,6 +98,15 @@ func (h gatewayHandler) callerCanDelete(bindings []rbac.BindingSummary, gatewayI
 // Advertised as Gateway.can_edit so a client can disable an edit affordance the
 // server would reject. When RBAC is not enforced every edit is permitted, so it
 // reports true.
+// callerIsPlatformAdmin reports whether the caller may change target_bundle
+// (SEC-RBAC-36). With RBAC enforcement disabled (dev mode) every caller may.
+func (h gatewayHandler) callerIsPlatformAdmin(ctx context.Context) bool {
+	if !h.enforceRBAC {
+		return true
+	}
+	return rbac.HasPlatformAdminRole(ctx, rbac.GetUserIDFromContext(ctx))
+}
+
 func (h gatewayHandler) callerCanEdit(bindings []rbac.BindingSummary, gatewayID string) bool {
 	if !h.enforceRBAC {
 		return true
@@ -307,6 +316,9 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 // gRPC and import paths.
 type gatewayPatchRequest struct {
 	Name *string `json:"name,omitempty"`
+	// TargetBundle is writable by platform:admin only (PLAT-DATA-33,
+	// SEC-RBAC-36).
+	TargetBundle *string `json:"target_bundle,omitempty"`
 }
 
 // UnmarshalJSON decodes the PATCH body and rejects any field outside the update
@@ -343,41 +355,38 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			// the REST PATCH contract (GatewayPatchRequest exposes only name); the service
 			// write funnel enforces the default-deny field policy as the authoritative
 			// backstop (SEC-RBAC-18).
+			bindings := h.callerBindings(ctx)
+			// The middleware lets platform:admin PATCH any gateway so it can set
+			// target_bundle (SEC-RBAC-36); every other change still needs a
+			// gateway:owner or gateway:admin binding (SEC-RBAC-07.05).
+			if patch.Name != nil && *patch.Name != found.Name && !h.callerCanEdit(bindings, found.ID) {
+				return nil, errors.Forbidden("renaming gateway %s requires gateway:owner or gateway:admin", found.ID)
+			}
 			if patch.Name != nil {
 				found.Name = *patch.Name
+			}
+			if patch.TargetBundle != nil {
+				if h.callerIsPlatformAdmin(ctx) {
+					ctx = withTargetBundleWriter(ctx)
+				}
+				if *patch.TargetBundle == "" {
+					found.TargetBundle = nil
+				} else {
+					target := strings.TrimSpace(*patch.TargetBundle)
+					found.TargetBundle = &target
+				}
 			}
 
 			gatewayModel, err := h.gateway.Replace(ctx, found)
 			if err != nil {
 				return nil, err
 			}
-			bindings := h.callerBindings(ctx)
 			return PresentGateway(gatewayModel, h.creatorUsername(ctx, gatewayModel.ID), h.callerCanDelete(bindings, gatewayModel.ID), h.callerCanEdit(bindings, gatewayModel.ID)), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
 
 	handlers.Handle(w, r, cfg, http.StatusOK)
-}
-
-// Redeploy records an administrator redeploy request (PLAT-DATA-33): the
-// gateway's generation advances so the control plane applies it again with its
-// current chart and default images. The authorization middleware allows only
-// platform:admin (SEC-RBAC-36); the handler takes no body.
-func (h gatewayHandler) Redeploy(w http.ResponseWriter, r *http.Request) {
-	cfg := &handlers.HandlerConfig{
-		Action: func() (interface{}, *errors.ServiceError) {
-			ctx := r.Context()
-			gatewayModel, err := h.gateway.Redeploy(ctx, mux.Vars(r)["id"])
-			if err != nil {
-				return nil, err
-			}
-			bindings := h.callerBindings(ctx)
-			return PresentGateway(gatewayModel, h.creatorUsername(ctx, gatewayModel.ID), h.callerCanDelete(bindings, gatewayModel.ID), h.callerCanEdit(bindings, gatewayModel.ID)), nil
-		},
-		ErrorHandler: handlers.HandleError,
-	}
-	handlers.HandleGet(w, r, cfg)
 }
 
 // gatewayDefaultOrder and gatewayOrderTiebreak express the gateway list's

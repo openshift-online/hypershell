@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -92,5 +93,83 @@ func TestHandle_FailedPassDoesNotWriteDeployedBundle(t *testing.T) {
 		if req.DeployedBundle != nil {
 			t.Fatalf("failed pass wrote deployed_bundle %q", req.GetDeployedBundle())
 		}
+	}
+}
+
+// Verifies: PLAT-DATA-33.02, PLAT-DATA-33.03, PLAT-DATA-33.05, PLAT-DATA-33.06
+func TestTargetBundleBlocked(t *testing.T) {
+	cases := []struct {
+		target, own string
+		blocked     bool
+	}{
+		{"", "b1", false},
+		{"b1", "b1", false},
+		{"b1#2", "b1", false},
+		{" b1 #x", "b1", false},
+		{"current", "quay.io/x/cp@sha256:abc", false},
+		{"current#7", "", false},
+		{"b2", "b1", true},
+		{"b2#1", "b1", true},
+		{"b2", "", true},
+	}
+	for _, tc := range cases {
+		msg, blocked := targetBundleBlocked(tc.target, tc.own)
+		if blocked != tc.blocked {
+			t.Errorf("targetBundleBlocked(%q, %q) = %v, want %v", tc.target, tc.own, blocked, tc.blocked)
+		}
+		if blocked && !strings.Contains(msg, targetBundleBase(tc.target)) {
+			t.Errorf("message %q does not name the target", msg)
+		}
+	}
+}
+
+// A target for another bundle changes nothing: no Helm work, no
+// observed_generation, only a Pending GatewayDeployed condition naming both
+// bundles, written once.
+// Verifies: PLAT-DATA-33.03, OSG-HELM-01.09
+func TestHandle_UnavailableTargetBundleStaysPending(t *testing.T) {
+	client := &recordingGatewayClient{respond: func(*pb.UpdateGatewayRequest) (*pb.UpdateGatewayResponse, error) {
+		return &pb.UpdateGatewayResponse{}, nil
+	}}
+	r := newGeneratedConfigReconciler(client)
+	r.SetDeployedBundle("b1")
+	observed := int64(1)
+	target := "b2#1"
+	gw := &pb.Gateway{
+		Metadata:           &pb.ObjectReference{Id: generatedConfigGatewayID},
+		Name:               "pending-target",
+		Generation:         2,
+		ObservedGeneration: &observed,
+		TargetBundle:       &target,
+	}
+	event := watcher.Event[*pb.Gateway]{Type: watcher.EventUpdated, ResourceID: generatedConfigGatewayID, Resource: gw}
+	if err := r.Handle(t.Context(), event); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("UpdateGateway requests = %d, want 1 condition write", len(client.requests))
+	}
+	req := client.requests[0]
+	if req.ObservedGeneration != nil || req.DeployedBundle != nil {
+		t.Fatalf("blocked pass acknowledged the generation: %+v", req)
+	}
+	var deployed *pb.ProvisioningCondition
+	for _, c := range req.GetProvisioningConditions() {
+		if c.GetType() == "GatewayDeployed" {
+			deployed = c
+		}
+	}
+	if deployed == nil || deployed.GetConditionStatus() != pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_PENDING ||
+		!strings.Contains(deployed.GetMessage(), "b2") || !strings.Contains(deployed.GetMessage(), "b1") {
+		t.Fatalf("GatewayDeployed = %+v, want Pending naming b2 and b1", deployed)
+	}
+
+	// The next event already shows the condition, so nothing is written again.
+	gw.ProvisioningConditions = req.GetProvisioningConditions()
+	if err := r.Handle(t.Context(), event); err != nil {
+		t.Fatalf("second Handle: %v", err)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("repeated pass wrote again: %d requests", len(client.requests))
 	}
 }

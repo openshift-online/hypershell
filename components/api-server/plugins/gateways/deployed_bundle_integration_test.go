@@ -33,7 +33,7 @@ func TestGRPCControlPlaneWritesDeployedBundle(t *testing.T) {
 	Expect(updated.GetGateway().GetDeployedBundle()).To(Equal(bundle))
 	Expect(updated.GetGateway().GetGeneration()).To(Equal(generation))
 	Expect(updated.GetGateway().GetObservedGeneration()).To(Equal(generation))
-	Expect(updated.GetGateway().GetRedeployRequestedAt()).To(BeNil())
+	Expect(updated.GetGateway().TargetBundle).To(BeNil())
 
 	user := newGRPCGatewayClient(t, h)
 	userGW, err := user.CreateGateway(ctx, &pb.CreateGatewayRequest{Name: "bundle-user", ClusterId: registerTestCluster(t)})

@@ -536,12 +536,6 @@ func extractResourceInfoFromRoute(r *http.Request) (resource string, resourceID 
 	if strings.HasSuffix(pathTemplate, "/gateways/placement-availability") {
 		return "gateway_placement_availability", ""
 	}
-	if strings.HasSuffix(pathTemplate, "/gateways/{id}/redeploy") {
-		// The administrator redeploy action (PLAT-DATA-33) is its own resource so
-		// it gets the platform:admin-only gate (SEC-RBAC-36), not the gateway
-		// owner/admin write rules.
-		return "gateway_redeploy", mux.Vars(r)["id"]
-	}
 
 	parts := strings.Split(pathTemplate, "/")
 	for i := len(parts) - 1; i >= 0; i-- {
@@ -673,12 +667,6 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 		return method == http.MethodPost && hasGatewayCreator(bindings)
 	}
 
-	if resource == "gateway_redeploy" {
-		// Redeploy is platform:admin only; gateway owners, admins and viewers
-		// are denied (SEC-RBAC-36).
-		return method == http.MethodPost && hasPlatformAdmin(bindings)
-	}
-
 	// Extension kinds (/api/hypershell/ext/...): the platform-wide authoring
 	// kinds served to hsctl and the generated SDKs. An ext path whose resource
 	// is not a known extension kind fails closed rather than falling through to
@@ -747,6 +735,13 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 	}
 
 	if resource == "gateways" && gatewayID != "" {
+		// platform:admin may PATCH any gateway so it can set target_bundle
+		// (SEC-RBAC-36). The gateway handler limits a platform:admin caller
+		// without a gateway binding to that one field (SEC-RBAC-07.05), and
+		// can_edit (CanEditGateway) stays false for it.
+		if method == http.MethodPatch && hasPlatformAdmin(bindings) {
+			return true
+		}
 		return isGatewayAuthorized(method, gatewayID, bindings)
 	}
 

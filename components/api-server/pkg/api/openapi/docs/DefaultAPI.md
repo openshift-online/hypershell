@@ -82,7 +82,6 @@ Method | HTTP request | Description
 [**ListSecretSources**](DefaultAPI.md#ListSecretSources) | **Get** /api/hypershell/ext/secret_sources | Returns a list of secret sources
 [**ListUsers**](DefaultAPI.md#ListUsers) | **Get** /api/hypershell/v1/users | List registered users
 [**ListWorkspaceMemberships**](DefaultAPI.md#ListWorkspaceMemberships) | **Get** /api/hypershell/ext/workspace_memberships | Returns a list of workspace memberships
-[**RedeployGateway**](DefaultAPI.md#RedeployGateway) | **Post** /api/hypershell/v1/gateways/{id}/redeploy | Redeploy a gateway with the control plane&#39;s current chart and images
 [**RegisterManagedCluster**](DefaultAPI.md#RegisterManagedCluster) | **Post** /api/hypershell/v1/managed_clusters/registration | Self-register a control plane as a managed cluster
 [**RevokeGatewayAccess**](DefaultAPI.md#RevokeGatewayAccess) | **Delete** /api/hypershell/v1/gateways/{gateway_id}/access/{user_id} | Revoke a user&#39;s access to a gateway
 [**RevokeGatewayServiceAccount**](DefaultAPI.md#RevokeGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke | Permanently revoke an OpenShell gateway service account
@@ -5398,76 +5397,6 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**WorkspaceMembershipList**](WorkspaceMembershipList.md)
-
-### Authorization
-
-[Bearer](../README.md#Bearer)
-
-### HTTP request headers
-
-- **Content-Type**: Not defined
-- **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
-[[Back to Model list]](../README.md#documentation-for-models)
-[[Back to README]](../README.md)
-
-
-## RedeployGateway
-
-> Gateway RedeployGateway(ctx, id).Execute()
-
-Redeploy a gateway with the control plane's current chart and images
-
-
-
-### Example
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"os"
-	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
-)
-
-func main() {
-	id := "id_example" // string | The id of record
-
-	configuration := openapiclient.NewConfiguration()
-	apiClient := openapiclient.NewAPIClient(configuration)
-	resp, r, err := apiClient.DefaultAPI.RedeployGateway(context.Background(), id).Execute()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.RedeployGateway``: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
-	}
-	// response from `RedeployGateway`: Gateway
-	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.RedeployGateway`: %v\n", resp)
-}
-```
-
-### Path Parameters
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record |
-
-### Other Parameters
-
-Other parameters are passed through a pointer to a apiRedeployGatewayRequest struct via the builder pattern
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-
-
-### Return type
-
-[**Gateway**](Gateway.md)
 
 ### Authorization
 

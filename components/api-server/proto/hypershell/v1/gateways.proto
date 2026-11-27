@@ -71,9 +71,10 @@ message Gateway {
   // deployed_bundle names the control-plane build that ran the last successful
   // provisioning pass (data-model.spec.md PLAT-DATA-34). Control-plane-observed.
   optional string deployed_bundle = 33;
-  // redeploy_requested_at is the time of the last administrator redeploy
-  // request (PLAT-DATA-33). Server-owned; unset when none was made.
-  google.protobuf.Timestamp redeploy_requested_at = 34;
+  // target_bundle is the release bundle a platform administrator wants this
+  // gateway to run, "<bundle>[#<token>]" (PLAT-DATA-33). Set through REST PATCH
+  // by platform:admin only; not writable through UpdateGateway.
+  optional string target_bundle = 34;
 }
 
 message CreateGatewayRequest {

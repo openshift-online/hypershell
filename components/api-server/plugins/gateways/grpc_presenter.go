@@ -33,12 +33,7 @@ func gatewayToProto(d *Gateway) *pb.Gateway {
 		ConsoleAddress:     d.ConsoleAddress,
 		GatewayVersion:     d.GatewayVersion,
 		DeployedBundle:     d.DeployedBundle,
-		RedeployRequestedAt: func() *timestamppb.Timestamp {
-			if d.RedeployRequestedAt == nil {
-				return nil
-			}
-			return timestamppb.New(*d.RedeployRequestedAt)
-		}(),
+		TargetBundle:       d.TargetBundle,
 		Oidc:               d.Oidc,
 		Route:              d.Route,
 		DedicatedRoute:     d.DedicatedRoute,

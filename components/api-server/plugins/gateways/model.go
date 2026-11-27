@@ -3,7 +3,6 @@ package gateways
 import (
 	"encoding/hex"
 	"fmt"
-	"time"
 
 	hypershellapi "github.com/openshift-online/hypershell/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
@@ -64,11 +63,11 @@ type Gateway struct {
 	// created directly through the REST API or hsctl apply. Read-only in the client
 	// contract; set server-side from the import binding, never from a client body.
 	RepositoryId *string `json:"repository_id"`
-	// RedeployRequestedAt is the time of the last administrator redeploy request
-	// (data-model.spec.md PLAT-DATA-33). Server-owned: only the redeploy action
-	// sets it, and a change of it is a desired-state change that advances
-	// generation.
-	RedeployRequestedAt *time.Time `json:"redeploy_requested_at"`
+	// TargetBundle is the release bundle a platform administrator wants this
+	// gateway to run, "<bundle>[#<token>]" (data-model.spec.md PLAT-DATA-33).
+	// Desired state, writable by platform:admin only; the control plane applies
+	// it only when the bundle (without the token) is its own.
+	TargetBundle *string `json:"target_bundle"`
 	// DeployedBundle names the control-plane build that ran the last successful
 	// provisioning pass (PLAT-DATA-34). Control-plane-observed; never advances
 	// generation.

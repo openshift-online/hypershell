@@ -38,8 +38,6 @@ paths:
     $ref: 'openapi.gateways.yaml#/paths/~1api~1hypershell~1v1~1gateways~1placement-availability'
   /api/hypershell/v1/gateways/{id}:
     $ref: 'openapi.gateways.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{id}'
-  /api/hypershell/v1/gateways/{id}/redeploy:
-    $ref: 'openapi.gateways.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{id}~1redeploy'
   /api/hypershell/v1/gateways/{gateway_id}/service_accounts:
     $ref: 'openapi.serviceAccounts.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1service_accounts'
   /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}:

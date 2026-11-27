@@ -698,57 +698,6 @@ paths:
       security:
       - Bearer: []
       summary: Update an gateway
-  /api/hypershell/v1/gateways/{id}/redeploy:
-    post:
-      description: |
-        Records an administrator redeploy request (data-model.spec.md PLAT-DATA-33).
-        The API server sets redeploy_requested_at and advances generation, so the
-        control plane applies the gateway again with its current chart and default
-        images. Allowed for platform:admin only (SEC-RBAC-36). No request body.
-      operationId: redeployGateway
-      parameters:
-      - description: The id of record
-        explode: false
-        in: path
-        name: id
-        required: true
-        schema:
-          type: string
-        style: simple
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Gateway"
-          description: Redeploy recorded; the gateway is returned with its new generation
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Auth token is invalid
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Caller is not a platform administrator
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: "No gateway with specified id exists, or it was deleted"
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unexpected error recording the redeploy
-      security:
-      - Bearer: []
-      summary: Redeploy a gateway with the control plane's current chart and images
   /api/hypershell/v1/gateways/{gateway_id}/service_accounts:
     get:
       operationId: listGatewayServiceAccounts
@@ -5370,9 +5319,11 @@ components:
               \ image) that ran the last successful provisioning pass (PLAT-DATA-34)"
             readOnly: true
             type: string
-          redeploy_requested_at:
-            description: Time of the last administrator redeploy request (PLAT-DATA-33)
-            format: date-time
+          target_bundle:
+            description: "Release bundle a platform administrator wants this gateway\
+              \ to run, \"<bundle>[#<token>]\"; the token only forces a reapply, and\
+              \ \"current\" means the controller's own bundle (PLAT-DATA-33). Set\
+              \ through GatewayPatchRequest by platform:admin only."
             readOnly: true
             type: string
           oidc:
@@ -5476,6 +5427,7 @@ components:
         cluster_id: cluster_id
         updated_at: 2000-01-23T04:56:07.000+00:00
         can_delete: true
+        target_bundle: target_bundle
         repository_id: repository_id
         id: id
         href: href
@@ -5497,7 +5449,6 @@ components:
         kind: kind
         console_address: console_address
         workspace_mode: shared
-        redeploy_requested_at: 2000-01-23T04:56:07.000+00:00
         can_edit: true
         route_address: route_address
         oidc: oidc
@@ -5548,6 +5499,7 @@ components:
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
           can_delete: true
+          target_bundle: target_bundle
           repository_id: repository_id
           id: id
           href: href
@@ -5569,7 +5521,6 @@ components:
           kind: kind
           console_address: console_address
           workspace_mode: shared
-          redeploy_requested_at: 2000-01-23T04:56:07.000+00:00
           can_edit: true
           route_address: route_address
           oidc: oidc
@@ -5590,6 +5541,7 @@ components:
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
           can_delete: true
+          target_bundle: target_bundle
           repository_id: repository_id
           id: id
           href: href
@@ -5611,7 +5563,6 @@ components:
           kind: kind
           console_address: console_address
           workspace_mode: shared
-          redeploy_requested_at: 2000-01-23T04:56:07.000+00:00
           can_edit: true
           route_address: route_address
           oidc: oidc
@@ -5629,11 +5580,18 @@ components:
         \ Every other gateway field is platform-managed and control-plane-only; it\
         \ is not part of the update contract and is rejected if a user or import caller\
         \ changes it (data-model.spec.md \"Requirement: Gateway Field Ownership and\
-        \ Write Policy\", PLAT-DATA-23)."
+        \ Write Policy\", PLAT-DATA-23). A platform:admin caller may also set target_bundle\
+        \ (PLAT-DATA-33, SEC-RBAC-36); an empty string clears it."
       example:
         name: name
+        target_bundle: target_bundle
       properties:
         name:
+          type: string
+        target_bundle:
+          description: "Release bundle to run, \"<bundle>[#<token>]\". platform:admin\
+            \ only. The token is ignored for matching and only forces a reapply; \"\
+            current\" means the bundle the gateway's controller runs."
           type: string
       type: object
     GatewayPlacementIntent:

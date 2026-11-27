@@ -156,7 +156,6 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**ListSecretSources**](docs/DefaultAPI.md#listsecretsources) | **Get** /api/hypershell/ext/secret_sources | Returns a list of secret sources
 *DefaultAPI* | [**ListUsers**](docs/DefaultAPI.md#listusers) | **Get** /api/hypershell/v1/users | List registered users
 *DefaultAPI* | [**ListWorkspaceMemberships**](docs/DefaultAPI.md#listworkspacememberships) | **Get** /api/hypershell/ext/workspace_memberships | Returns a list of workspace memberships
-*DefaultAPI* | [**RedeployGateway**](docs/DefaultAPI.md#redeploygateway) | **Post** /api/hypershell/v1/gateways/{id}/redeploy | Redeploy a gateway with the control plane&#39;s current chart and images
 *DefaultAPI* | [**RegisterManagedCluster**](docs/DefaultAPI.md#registermanagedcluster) | **Post** /api/hypershell/v1/managed_clusters/registration | Self-register a control plane as a managed cluster
 *DefaultAPI* | [**RevokeGatewayAccess**](docs/DefaultAPI.md#revokegatewayaccess) | **Delete** /api/hypershell/v1/gateways/{gateway_id}/access/{user_id} | Revoke a user&#39;s access to a gateway
 *DefaultAPI* | [**RevokeGatewayServiceAccount**](docs/DefaultAPI.md#revokegatewayserviceaccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke | Permanently revoke an OpenShell gateway service account

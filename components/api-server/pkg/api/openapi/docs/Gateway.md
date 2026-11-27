@@ -24,7 +24,7 @@ Name | Type | Description | Notes
 **ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly]
 **GatewayVersion** | Pointer to **string** | Runtime version from the last successful gateway health response | [optional] [readonly]
 **DeployedBundle** | Pointer to **string** | Control-plane build (release bundle name, or controller image) that ran the last successful provisioning pass (PLAT-DATA-34) | [optional] [readonly]
-**RedeployRequestedAt** | Pointer to **time.Time** | Time of the last administrator redeploy request (PLAT-DATA-33) | [optional] [readonly]
+**TargetBundle** | Pointer to **string** | Release bundle a platform administrator wants this gateway to run, \&quot;&lt;bundle&gt;[#&lt;token&gt;]\&quot;; the token only forces a reapply, and \&quot;current\&quot; means the controller&#39;s own bundle (PLAT-DATA-33). Set through GatewayPatchRequest by platform:admin only. | [optional] [readonly]
 **Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly]
 **Route** | Pointer to **string** | JSON-encoded route configuration; platform-managed, control-plane-only (PLAT-DATA-23). The optional certificate sub-key (an empty object) marks a gateway opted in to dedicated per-gateway certificate provisioning; it is provision-time only and cannot be added, removed, or changed after creation. | [optional] [readonly]
 **DedicatedRoute** | Pointer to **bool** | Whether the gateway requested the dedicated per-gateway route and wildcard certificate path at creation. | [optional] [readonly]
@@ -543,30 +543,30 @@ SetDeployedBundle sets DeployedBundle field to given value.
 
 HasDeployedBundle returns a boolean if a field has been set.
 
-### GetRedeployRequestedAt
+### GetTargetBundle
 
-`func (o *Gateway) GetRedeployRequestedAt() time.Time`
+`func (o *Gateway) GetTargetBundle() string`
 
-GetRedeployRequestedAt returns the RedeployRequestedAt field if non-nil, zero value otherwise.
+GetTargetBundle returns the TargetBundle field if non-nil, zero value otherwise.
 
-### GetRedeployRequestedAtOk
+### GetTargetBundleOk
 
-`func (o *Gateway) GetRedeployRequestedAtOk() (*time.Time, bool)`
+`func (o *Gateway) GetTargetBundleOk() (*string, bool)`
 
-GetRedeployRequestedAtOk returns a tuple with the RedeployRequestedAt field if it's non-nil, zero value otherwise
+GetTargetBundleOk returns a tuple with the TargetBundle field if it's non-nil, zero value otherwise
 and a boolean to check if the value has been set.
 
-### SetRedeployRequestedAt
+### SetTargetBundle
 
-`func (o *Gateway) SetRedeployRequestedAt(v time.Time)`
+`func (o *Gateway) SetTargetBundle(v string)`
 
-SetRedeployRequestedAt sets RedeployRequestedAt field to given value.
+SetTargetBundle sets TargetBundle field to given value.
 
-### HasRedeployRequestedAt
+### HasTargetBundle
 
-`func (o *Gateway) HasRedeployRequestedAt() bool`
+`func (o *Gateway) HasTargetBundle() bool`
 
-HasRedeployRequestedAt returns a boolean if a field has been set.
+HasTargetBundle returns a boolean if a field has been set.
 
 ### GetOidc
 

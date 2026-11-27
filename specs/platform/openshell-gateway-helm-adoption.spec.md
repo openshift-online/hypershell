@@ -116,7 +116,7 @@ The control plane SHALL use the Helm CLI to manage gateway Helm releases program
 
 The reconciler provisions a gateway only while its desired spec is not converged (`observed_generation` is behind `generation`; see `control-plane.spec.md`, CTRL-CORE-13). A converged gateway is not upgraded again.
 
-The control plane never upgrades a gateway on its own. A new chart or image default reaches an existing gateway only through a desired-state change. A platform administrator triggers one explicitly with the redeploy action (`data-model.spec.md`, PLAT-DATA-33), which advances `generation` without changing any workload field.
+A new chart or image default reaches an existing gateway only through a desired-state change. A platform administrator requests one by setting the gateway's `target_bundle` (`data-model.spec.md`, PLAT-DATA-33). The reconciler applies a target only when it names the reconciler's own bundle; otherwise the target stays pending and is applied, unattended, once a controller running that bundle reconciles the gateway.
 
 #### Scenario: OSG-HELM-01.05 -- Gateway spec change upgrades the release
 
@@ -124,19 +124,26 @@ The control plane never upgrades a gateway on its own. A new chart or image defa
 - WHEN its desired spec changes (for example a new `image`)
 - THEN the GatewayReconciler SHALL run `helm upgrade --reset-values` with values computed from the new spec
 
-#### Scenario: OSG-HELM-01.07 -- Administrator redeploy upgrades the release
+#### Scenario: OSG-HELM-01.07 -- A matching target bundle upgrades the release
 
 - GIVEN a converged gateway deployed by an older control-plane build
-- WHEN a platform administrator requests a redeploy (PLAT-DATA-33)
+- WHEN a platform administrator sets its `target_bundle` to the bundle the current control plane runs (PLAT-DATA-33)
 - THEN the GatewayReconciler SHALL run `helm upgrade --reset-values` with the current embedded chart and current default images
 - AND on success it SHALL record the new `observed_generation` and `deployed_bundle` (PLAT-DATA-34)
 
-#### Scenario: OSG-HELM-01.08 -- A new control-plane build alone does not upgrade gateways
+#### Scenario: OSG-HELM-01.08 -- A control-plane rollout alone does not upgrade a converged gateway
 
-- GIVEN a converged gateway
+- GIVEN a converged gateway with no pending target
 - WHEN a control-plane build with a new chart or new default images starts
 - THEN the GatewayReconciler SHALL NOT upgrade the gateway's release
 - AND the gateway's `deployed_bundle` SHALL keep naming the build that last applied it
+
+#### Scenario: OSG-HELM-01.09 -- A target for another bundle is not applied
+
+- GIVEN a gateway whose `target_bundle` names a bundle other than the reconciler's own
+- WHEN the GatewayReconciler processes it
+- THEN it SHALL NOT run any Helm operation
+- AND it SHALL leave the gateway unconverged with a `Pending` `GatewayDeployed` condition naming both bundles
 
 #### Scenario: OSG-HELM-01.06 -- Failed Helm operation is retried
 
