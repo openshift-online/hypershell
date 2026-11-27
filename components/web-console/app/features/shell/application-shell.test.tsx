@@ -28,6 +28,15 @@ vi.mock("../../composition/platform-policy-composition", () => ({
   },
 }));
 
+// The terminal drawer uses a scripted runtime here; no worker is created.
+vi.mock("../../composition/terminal-composition", async () => {
+  const fake = await import("../../application/terminal/testing/fake-terminal");
+  return {
+    terminalOperations: fake.createFakeTerminal().operations,
+    terminalPreferences: fake.createMemoryTerminalPreferences(),
+  };
+});
+
 vi.mock("../../composition/gateway-composition", () => ({
   gatewayOperations: {
     findGatewayPlacements: vi.fn(),
@@ -231,6 +240,35 @@ describe("ApplicationShell", () => {
     expect(overviewLink.className).not.toContain("pf-m-current");
   });
 
+  // Verifies: WEB-UDOC-03
+  it("shows a sign-in action for a signed-out docs reader that returns to the page", async () => {
+    getSessionMock.mockResolvedValue({
+      authEnabled: true,
+      authenticated: false,
+      roles: [],
+    });
+    renderShell("/docs/refusals/resource-limits?policy=sandbox-cpu-limit");
+
+    const signIn = await screen.findByRole("link", { name: "Sign in" });
+    expect(signIn.getAttribute("href")).toBe(
+      "/auth/login?return_to=%2Fdocs%2Frefusals%2Fresource-limits%3Fpolicy%3Dsandbox-cpu-limit",
+    );
+    expect(checkAccessMock).not.toHaveBeenCalled();
+  });
+
+  it("hides the sign-in action in no-auth mode and links the docs from the sidebar", async () => {
+    const user = userEvent.setup();
+    renderShell("/docs");
+
+    await user.click(screen.getByRole("button", { name: "Toggle navigation" }));
+    const docsLink = within(
+      screen.getByRole("navigation", { name: "Primary navigation" }),
+    ).getByRole("link", { name: "Documentation" });
+    expect(docsLink.getAttribute("href")).toBe("/docs");
+    expect(docsLink.className).toContain("pf-m-current");
+    expect(screen.queryByRole("link", { name: "Sign in" })).toBeNull();
+  });
+
   it("uses the gateway name for a gateway deep link", async () => {
     renderShell("/gateways/gateway-b");
 
@@ -280,4 +318,21 @@ describe("ApplicationShell", () => {
       screen.getByRole("heading", { level: 1, name: "/" }),
     );
   });
+  // Verifies: WEB-TERM-01
+  it("puts the hsctl terminal trigger in the masthead and opens the drawer around the page", async () => {
+    const user = userEvent.setup();
+    renderShell("/gateways");
+
+    const trigger = await screen.findByRole("button", {
+      name: "Open hsctl terminal",
+    });
+    expect(trigger.closest("header")).not.toBeNull();
+    expect(screen.queryByRole("region", { name: "hsctl terminal" })).toBeNull();
+
+    await user.click(trigger);
+
+    expect(screen.getByRole("region", { name: "hsctl terminal" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 })).toBeTruthy();
+    // Rendering the whole shell and the drawer is slow under parallel load.
+  }, 30_000);
 });

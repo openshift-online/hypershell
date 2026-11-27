@@ -5,7 +5,7 @@
 **Date:** 2026-11-20
 **Status:** Draft
 **Source mockups:** `specs/web-console/mockups/admin/` (platform-policies list, enforcement-toggle confirmation, policy detail, and the create/edit Cedar editor states), `specs/web-console/mockups/common/policy-rules.tsx` (shared rendered-rule presentation). The admin mockups are `platform-policies.tsx`, `platform-policy-detail.tsx`, and `platform-policy-form.tsx` in that directory, each with `Mockups/Administration/...` design-review stories and `Parity/Administration/...` stories; mockup-to-mockup navigation uses `specs/web-console/mockups/common/story-links.ts`. This spec cites the story states it governs. The mockup Cedar editor uses a monospace text area as a stand-in for the PatternFly code editor required by UIS-PFLY-11.
-**Related:** [`../platform/platform-gateway-policy.spec.md`](../platform/platform-gateway-policy.spec.md) (policy behavior, validation, enforcement mode, defaults, denial text, and the Cedar display renderer PLAT-PGP-01..21), [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) (`platform-policy:admin` SEC-RBAC-30, effective-policies and findings authorization SEC-RBAC-31), [`gateway-list-detail.spec.md`](./gateway-list-detail.spec.md) (read-only gateway Policies tab WEB-GLIS-26), [`../standards/ui/patternfly.spec.md`](../standards/ui/patternfly.spec.md) (code-editor admission UIS-PFLY-11), [`../standards/ui/hexagonal-architecture.spec.md`](../standards/ui/hexagonal-architecture.spec.md), [`../standards/ui/domain-observability.spec.md`](../standards/ui/domain-observability.spec.md), [`../standards/ui/content-localization.spec.md`](../standards/ui/content-localization.spec.md), [`../standards/ui/verification.spec.md`](../standards/ui/verification.spec.md), [`architecture.spec.md`](./architecture.spec.md) (console shell, routing, BFF, SDK boundary)
+**Related:** [`../platform/platform-gateway-policy.spec.md`](../platform/platform-gateway-policy.spec.md) (policy behavior, validation, enforcement mode, defaults, denial text, and the Cedar display renderer PLAT-PGP-01..21), [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) (`platform-policy:admin` SEC-RBAC-30, effective-policies and findings authorization SEC-RBAC-31), [`gateway-list-detail.spec.md`](./gateway-list-detail.spec.md) (read-only gateway Policies tab WEB-GLIS-26), [`../standards/ui/patternfly.spec.md`](../standards/ui/patternfly.spec.md) (code-editor admission UIS-PFLY-11), [`../standards/ui/hexagonal-architecture.spec.md`](../standards/ui/hexagonal-architecture.spec.md), [`../standards/ui/domain-observability.spec.md`](../standards/ui/domain-observability.spec.md), [`../standards/ui/content-localization.spec.md`](../standards/ui/content-localization.spec.md), [`../standards/ui/verification.spec.md`](../standards/ui/verification.spec.md), [`architecture.spec.md`](./architecture.spec.md) (console shell, routing, BFF, SDK boundary), [`user-documentation.spec.md`](./user-documentation.spec.md) (resource limit help page WEB-UDOC-09)
 
 ## Purpose
 
@@ -260,3 +260,30 @@ a governing story state.
 - WHEN the web-console completion gate runs
 - THEN each governed state (list, toggle confirmation, policy detail, and the editor states) SHALL have a story
 - AND the production pages SHALL pass parity, accessibility, and the non-parity checks
+
+---
+
+### Requirement: WEB-PADM-13 -- Console Help Page Suggestion for the Documentation URL
+
+When the draft contains a CPU or memory rule (WEB-PADM-06) and its
+`documentationUrl` is empty, the editor SHALL offer a one-click suggestion that
+fills `documentationUrl` with the console resource limit help page:
+`<console origin>/docs/refusals/resource-limits?policy=<policy name>`, with the
+policy name URL-encoded (`user-documentation.spec.md` WEB-UDOC-09). The
+suggestion SHALL NOT replace a value the author has entered, and the author MAY
+edit or remove the suggested value before saving. A signed-out user can open the
+page, so the link in a denial reason (PLAT-PGP-14) works from the OpenShell CLI
+without a sign-in first (WEB-UDOC-02).
+
+#### Scenario: WEB-PADM-13.01 -- Suggestion fills an empty documentation URL
+
+- GIVEN a new draft named `sandbox-cpu-limit` with a CPU limit maximum rule and an empty `documentationUrl`
+- WHEN the author accepts the suggestion
+- THEN `documentationUrl` SHALL be `<console origin>/docs/refusals/resource-limits?policy=sandbox-cpu-limit`
+
+#### Scenario: WEB-PADM-13.02 -- An entered URL is kept
+
+- GIVEN a draft with a CPU rule whose `documentationUrl` is already `https://example.com/limits`
+- WHEN the editor renders
+- THEN the editor SHALL NOT offer to replace it
+- AND `documentationUrl` SHALL stay `https://example.com/limits`

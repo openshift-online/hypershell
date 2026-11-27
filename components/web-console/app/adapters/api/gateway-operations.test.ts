@@ -375,6 +375,27 @@ describe("gateway API operations adapter", () => {
     });
   });
 
+  // Verifies: WEB-UDOC-07
+  it("carries the cluster capability labels so runbooks can find VPN gateways", async () => {
+    managedClusterApi.list.mockResolvedValue(
+      managedClusterList([
+        managedCluster({
+          capabilities: ["network/vpn", "provider/aws"],
+          id: "cluster-east",
+        }),
+      ]),
+    );
+
+    await expect(
+      controlPlane.getGatewayPlacements(["cluster-east"], context),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        capabilities: ["network/vpn", "provider/aws"],
+        id: "cluster-east",
+      }),
+    ]);
+  });
+
   it("resolves a cold page of distinct cluster identifiers in one batch", async () => {
     const clusterIds = Array.from(
       { length: 20 },

@@ -9,6 +9,11 @@ export const routes = {
   dashboardProvisioning: "dashboard/provisioning",
   dashboardReliability: "dashboard/reliability",
   dashboardUsage: "dashboard/usage",
+  docs: "docs",
+  docsCliInstallHsctl: "docs/cli/install-hsctl",
+  docsRefusalResourceLimits: "docs/refusals/resource-limits",
+  docsRunbookGithubJira: "docs/runbooks/github-jira",
+  docsRunbookGitlabJira: "docs/runbooks/gitlab-jira",
   gatewayDetail: "gateways/:gatewayId",
   gatewayList: "gateways",
   gatewayNew: "gateways/new",
@@ -35,6 +40,11 @@ export const routePaths = {
   dashboardProvisioning: routePath("dashboardProvisioning"),
   dashboardReliability: routePath("dashboardReliability"),
   dashboardUsage: routePath("dashboardUsage"),
+  docs: routePath("docs"),
+  docsCliInstallHsctl: routePath("docsCliInstallHsctl"),
+  docsRefusalResourceLimits: routePath("docsRefusalResourceLimits"),
+  docsRunbookGithubJira: routePath("docsRunbookGithubJira"),
+  docsRunbookGitlabJira: routePath("docsRunbookGitlabJira"),
   gatewayDetail: routePath("gatewayDetail"),
   gatewayList: routePath("gatewayList"),
   gatewayNew: routePath("gatewayNew"),
@@ -42,6 +52,18 @@ export const routePaths = {
   login: routePath("login"),
   metrics: routePath("metrics"),
 } as const;
+
+/**
+ * The public docs routes (WEB-UDOC-01). The BFF serves the SPA document for
+ * exactly these paths without a session (WEB-UDOC-02).
+ */
+export const docsRouteNames = [
+  "docs",
+  "docsCliInstallHsctl",
+  "docsRefusalResourceLimits",
+  "docsRunbookGithubJira",
+  "docsRunbookGitlabJira",
+] as const satisfies readonly RouteName[];
 
 export function gatewayDetailPath(gatewayId: string): string {
   return routePaths.gatewayDetail.replace(

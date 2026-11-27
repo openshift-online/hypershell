@@ -326,7 +326,7 @@ jobs:
                 cp_img="$(main_component_image hypershell-control-plane-main "${baseline_cp}" \
                   components/control-plane Dockerfile .tekton/hypershell-control-plane-main-push.yaml)"
                 wc_img="$(main_component_image hypershell-web-console-main "${baseline_wc}" \
-                  components/web-console packages/gateway-management-ui .tekton/hypershell-web-console-main-push.yaml)"
+                  components/web-console packages/gateway-management-ui components/cli scripts/build-hsctl-wasm.sh .tekton/hypershell-web-console-main-push.yaml)"
                 echo "should_run=true" >> "${GITHUB_OUTPUT}"
                 echo "api_server_image=${api_img}" >> "${GITHUB_OUTPUT}"
                 echo "control_plane_image=${cp_img}" >> "${GITHUB_OUTPUT}"
@@ -350,7 +350,7 @@ jobs:
               cp_img="$(main_component_image hypershell-control-plane-main "${baseline_cp}" \
                 components/control-plane Dockerfile .tekton/hypershell-control-plane-main-push.yaml)"
               wc_img="$(main_component_image hypershell-web-console-main "${baseline_wc}" \
-                components/web-console packages/gateway-management-ui .tekton/hypershell-web-console-main-push.yaml)"
+                components/web-console packages/gateway-management-ui components/cli scripts/build-hsctl-wasm.sh .tekton/hypershell-web-console-main-push.yaml)"
 
               if [[ "${api_konflux}" == "true" ]]; then
                 api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"

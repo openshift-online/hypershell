@@ -24,6 +24,7 @@ export type {
   GatewayPlacement,
   GatewayPlacementAvailability,
   GatewayPlacementAvailabilityItem,
+  GatewayPlacementIntent,
   GatewayPlacementOptions,
   GatewayProvisionInput,
   ProvisioningCondition,
@@ -49,6 +50,7 @@ export type {
 export { externalLinkUrls } from "./application/external-links";
 export {
   kataRuntimeSelector,
+  kindPlacementSelector,
   defaultGatewayAccessListRequest,
   defaultOpenShellGatewayServiceAccountListRequest,
   defaultGatewayListRequest,
@@ -177,3 +179,25 @@ export {
   gatewayEffectivePoliciesStaleMilliseconds,
 } from "./policies/policy-data";
 export { GatewayStatus } from "./gateways/gateway-status";
+
+// Shared connection commands and presentation reused by the console docs
+// runbooks (WEB-UDOC-06, WEB-UDOC-10): one command block, one highlighter, and
+// one set of command builders across the console.
+export { CommandBlock } from "./gateways/editable-command";
+export {
+  buildGatewayAddCommand,
+  buildGatewaySelectCommand,
+  buildOpenShellInstallCommand,
+  buildSandboxDriverConfigJson,
+  isGatewayReadyToConnect,
+  sandboxResourceDefaults,
+  shellArgument,
+} from "./gateways/gateway-connections";
+export {
+  gatewayNeedsStatusPolling,
+  gatewayStatusPollMilliseconds,
+} from "./gateways/gateway-data";
+export {
+  useConsoleWaitTracker,
+  type ConsoleWaitTracker,
+} from "./gateways/console-wait-tracker";

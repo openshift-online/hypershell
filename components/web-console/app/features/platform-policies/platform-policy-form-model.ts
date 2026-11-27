@@ -14,6 +14,7 @@ import type {
   PlatformPolicyEvaluation,
   PlatformPolicyTestRequest,
 } from "../../application/platform-policies/platform-policy-types";
+import { routePaths } from "../../../shared/routes";
 import { cedarStatementLines, splitList } from "./cedar-snippets";
 
 /*
@@ -267,5 +268,43 @@ export function cedarStatementHeadline(rule: PolicyRenderedRule): string {
       .find(
         (line) => line && !line.startsWith("//") && !line.startsWith("@"),
       ) ?? ""
+  );
+}
+
+// Attributes of the CPU and memory rules the Add a rule snippets insert
+// (WEB-PADM-06).
+const resourceRuleAttribute =
+  /\b(?:cpuLimitMillis|cpuRequestMillis|memoryLimitBytes|memoryRequestBytes)\b/u;
+
+/** Whether the draft Cedar contains a CPU or memory rule. */
+export function hasResourceLimitRule(cedar: string): boolean {
+  return resourceRuleAttribute.test(cedar);
+}
+
+/**
+ * The console resource limit help page for a policy (WEB-PADM-13,
+ * WEB-UDOC-09), with the policy name URL-encoded.
+ */
+export function resourceLimitHelpUrl(
+  origin: string,
+  policyName: string,
+): string {
+  const name = policyName.trim();
+  const page = `${origin}${routePaths.docsRefusalResourceLimits}`;
+  return name === "" ? page : `${page}?policy=${encodeURIComponent(name)}`;
+}
+
+/**
+ * The editor offers the help page only for a named draft with a CPU or memory
+ * rule and an empty documentation URL, so it never replaces an entered value
+ * and the link always carries the policy name.
+ */
+export function shouldSuggestResourceLimitHelp(
+  values: Pick<PlatformPolicyFormValues, "cedar" | "documentationUrl" | "name">,
+): boolean {
+  return (
+    values.name.trim() !== "" &&
+    values.documentationUrl.trim() === "" &&
+    hasResourceLimitRule(values.cedar)
   );
 }

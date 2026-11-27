@@ -12,6 +12,8 @@ import {
   platformPolicyFormValues,
   platformPolicyPreviewRows,
   platformPolicyRejections,
+  resourceLimitHelpUrl,
+  shouldSuggestResourceLimitHelp,
   toPlatformPolicyDraft,
   toPlatformPolicyTestRequest,
 } from "./platform-policy-form-model";
@@ -152,5 +154,54 @@ describe("platform policy form model", () => {
         summary: [],
       }),
     ).toBe("forbid (principal, action, resource)");
+  });
+  // Verifies: WEB-PADM-13, WEB-PADM-13.01
+  it("builds the resource limit help URL with the encoded policy name", () => {
+    expect(
+      resourceLimitHelpUrl("https://console.example.com", "sandbox-cpu-limit"),
+    ).toBe(
+      "https://console.example.com/docs/refusals/resource-limits?policy=sandbox-cpu-limit",
+    );
+    expect(
+      resourceLimitHelpUrl("https://console.example.com", "team a&b"),
+    ).toBe(
+      "https://console.example.com/docs/refusals/resource-limits?policy=team%20a%26b",
+    );
+    expect(resourceLimitHelpUrl("https://console.example.com", " ")).toBe(
+      "https://console.example.com/docs/refusals/resource-limits",
+    );
+  });
+
+  // Verifies: WEB-PADM-13.02
+  it("suggests the help page only for a CPU or memory rule with no URL", () => {
+    expect(
+      shouldSuggestResourceLimitHelp({
+        cedar: validCedar,
+        documentationUrl: "",
+        name: "sandbox-cpu-limit",
+      }),
+    ).toBe(true);
+    expect(
+      shouldSuggestResourceLimitHelp({
+        cedar: validCedar,
+        documentationUrl: "",
+        name: " ",
+      }),
+    ).toBe(false);
+    expect(
+      shouldSuggestResourceLimitHelp({
+        cedar: validCedar,
+        documentationUrl: "https://example.com/limits",
+        name: "sandbox-cpu-limit",
+      }),
+    ).toBe(false);
+    expect(
+      shouldSuggestResourceLimitHelp({
+        cedar:
+          "forbid (principal, action, resource) when { context.gpuCount > 1 };",
+        documentationUrl: "",
+        name: "gpu-cap",
+      }),
+    ).toBe(false);
   });
 });

@@ -83,6 +83,29 @@ export function buildGatewayAddCommand(
 }
 
 /**
+ * Registers the gateway with the OpenShell CLI when it is not registered yet,
+ * then selects it. The Connection tab and the docs runbooks share this
+ * construction (WEB-UIEX-05, WEB-UDOC-06). Returns `undefined` until the
+ * gateway is ready to connect.
+ */
+export function buildGatewaySelectCommand(
+  gateway: GatewayConnection,
+): string | undefined {
+  const gatewayAdd = buildGatewayAddCommand(gateway);
+  if (!gatewayAdd) {
+    return undefined;
+  }
+  const gatewayMatch = `"name": "${gateway.name}"`;
+
+  return [
+    `if ! openshell gateway list -o json | grep -qF -- ${shellArgument(gatewayMatch)}; then`,
+    `  ${gatewayAdd.replaceAll("\n", "\n  ")}`,
+    "fi",
+    `openshell gateway select ${shellArgument(gateway.name)}`,
+  ].join("\n");
+}
+
+/**
  * Fixed OpenShell provider name used across the Vertex AI connection steps so
  * the provider, inference, and sandbox commands all refer to the same provider.
  */
@@ -244,11 +267,13 @@ export function buildInferenceSetCommand(
  * The DRIVER_CONFIG variable is extracted into a shell variable for readability,
  * avoiding an unwieldy inline JSON argument in the command itself.
  */
-export function buildSandboxCreateCommand(
-  name: string = sandboxName,
-  model: string = claudeModel,
-): string {
-  const driverConfig = JSON.stringify({
+/**
+ * The `--driver-config-json` value that sets the console's standard sandbox
+ * resource requests and limits (WEB-UIEX-05). The docs runbooks reuse it so
+ * every console surface proposes the same sandbox resources.
+ */
+export function buildSandboxDriverConfigJson(): string {
+  return JSON.stringify({
     kubernetes: {
       containers: {
         agent: {
@@ -257,8 +282,13 @@ export function buildSandboxCreateCommand(
       },
     },
   });
+}
 
-  const variable = `DRIVER_CONFIG='${driverConfig}'`;
+export function buildSandboxCreateCommand(
+  name: string = sandboxName,
+  model: string = claudeModel,
+): string {
+  const variable = `DRIVER_CONFIG='${buildSandboxDriverConfigJson()}'`;
 
   const command = [
     "openshell sandbox create",

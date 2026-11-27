@@ -54,6 +54,43 @@ const httpOrigin = z
   .transform((value) => new URL(value).origin);
 
 /**
+ * Optional `hsctl` release download location (WEB-UDOC-08): the absolute HTTPS
+ * URL of one release's download directory, with no credentials, query, or
+ * fragment. A trailing slash is removed so the browser can append asset names.
+ * A blank value means the setting is omitted.
+ */
+const hsctlDownloadBaseUrl = z
+  .string()
+  .trim()
+  .optional()
+  .transform((value) =>
+    value === undefined || value === "" ? undefined : value,
+  )
+  .refine((value) => {
+    if (value === undefined) {
+      return true;
+    }
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      return false;
+    }
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      !value.includes("?") &&
+      !value.includes("#")
+    );
+  }, "must be an absolute HTTPS URL without credentials, query, or fragment")
+  .transform((value) =>
+    value === undefined ? undefined : value.replace(/\/+$/u, ""),
+  );
+
+/**
  * Default cadence for the BFF's background API build-version refresh (5 min).
  * Shared between the config schema default and the app's fallback so there is a
  * single source of truth.
@@ -100,6 +137,7 @@ const configSchema = z.object({
       value === undefined || value === "" ? undefined : value,
     ),
   GITHUB_USERNAME_ALLOWLIST: z.string().optional(),
+  HSCTL_DOWNLOAD_BASE_URL: hsctlDownloadBaseUrl,
   OIDC_CLIENT_ID: z.string().trim().min(1).optional(),
   OIDC_ISSUER: httpUrl.optional(),
   OIDC_POST_LOGOUT_REDIRECT_URI: httpUrl.optional(),
@@ -175,6 +213,11 @@ export interface ServerConfig {
   githubOrgGate?: string;
   githubUsernameAllowlist?: string;
   host: string;
+  /**
+   * Optional `hsctl` release download directory (WEB-UDOC-08). Browser-visible
+   * through the runtime configuration allowlist.
+   */
+  hsctlDownloadBaseUrl?: string;
   logLevel: z.infer<typeof configSchema>["LOG_LEVEL"];
   nodeEnv: z.infer<typeof configSchema>["NODE_ENV"];
   oidcClientId?: string;
@@ -207,6 +250,12 @@ export interface ServerConfig {
 export interface BrowserRuntimeConfig {
   /** API server build version, relayed from its metadata endpoint. */
   apiVersion: string;
+  /**
+   * Optional `hsctl` release download directory for the Install `hsctl` docs
+   * page (WEB-UDOC-08, WEB-DPLY-02). The key name is the one the spec defines.
+   * Omitted when the BFF setting is not configured.
+   */
+  hsctl_download_base_url?: string;
   tracing: {
     /**
      * Fraction of browser-rooted traces to record, 0..1. It mirrors the BFF
@@ -229,6 +278,9 @@ export function browserRuntimeConfig(
 ): BrowserRuntimeConfig {
   return {
     apiVersion,
+    ...(config.hsctlDownloadBaseUrl === undefined
+      ? {}
+      : { hsctl_download_base_url: config.hsctlDownloadBaseUrl }),
     tracing: { sampleRatio: config.tracing?.sampleRatio ?? 0 },
     webVersion: config.webVersion,
     webBuildTime: config.webBuildTime,
@@ -297,6 +349,7 @@ export function loadConfig(
     githubOrgGate: result.data.GITHUB_ORG_GATE,
     githubUsernameAllowlist: result.data.GITHUB_USERNAME_ALLOWLIST,
     host: result.data.HOST,
+    hsctlDownloadBaseUrl: result.data.HSCTL_DOWNLOAD_BASE_URL,
     logLevel: result.data.LOG_LEVEL,
     nodeEnv: result.data.NODE_ENV,
     oidcClientId: result.data.OIDC_CLIENT_ID,

@@ -10,6 +10,11 @@
   "dashboardProvisioning": "dashboard/provisioning",
   "dashboardReliability": "dashboard/reliability",
   "dashboardUsage": "dashboard/usage",
+  "docs": "docs",
+  "docsCliInstallHsctl": "docs/cli/install-hsctl",
+  "docsRefusalResourceLimits": "docs/refusals/resource-limits",
+  "docsRunbookGithubJira": "docs/runbooks/github-jira",
+  "docsRunbookGitlabJira": "docs/runbooks/gitlab-jira",
   "gatewayDetail": "gateways/:gatewayId",
   "gatewayList": "gateways",
   "gatewayNew": "gateways/new",
@@ -31,6 +36,12 @@
     "/admin/platform-policies",
     "/admin/platform-policies/new",
     "/admin/platform-policies/policy-1",
-    "/admin/platform-policies/policy-1/edit"
+    "/admin/platform-policies/policy-1/edit",
+    "/docs",
+    "/docs/",
+    "/docs/runbooks/github-jira",
+    "/docs/runbooks/gitlab-jira",
+    "/docs/cli/install-hsctl",
+    "/docs/refusals/resource-limits"
   ]
 }

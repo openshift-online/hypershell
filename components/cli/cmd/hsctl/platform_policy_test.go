@@ -12,9 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
-
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/commands"
 	"github.com/openshift-online/hypershell/components/cli/pkg/apierror"
 )
 
@@ -58,27 +56,9 @@ func policyServer(t *testing.T, responses map[string]func(w http.ResponseWriter)
 	return &requests, &mu
 }
 
-// resetFlags restores every flag in the tree to its default, so a flag set by
-// an earlier invocation of a package-level command does not leak into the next.
-func resetFlags(cmd *cobra.Command) {
-	reset := func(f *pflag.Flag) {
-		if slice, ok := f.Value.(pflag.SliceValue); ok {
-			_ = slice.Replace(nil)
-		} else {
-			_ = f.Value.Set(f.DefValue)
-		}
-		f.Changed = false
-	}
-	cmd.Flags().VisitAll(reset)
-	cmd.PersistentFlags().VisitAll(reset)
-	for _, sub := range cmd.Commands() {
-		resetFlags(sub)
-	}
-}
-
 func runHsctl(t *testing.T, argv ...string) (string, error) {
 	t.Helper()
-	resetFlags(root)
+	commands.ResetFlags(root)
 	var out bytes.Buffer
 	root.SetArgs(argv)
 	root.SetOut(&out)

@@ -50,6 +50,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `CLI-PLC` | `platform/hsctl-placement.spec.md` | 5 |
 | `CLI-REL` | `platform/hsctl-release.spec.md` | 6 |
 | `CLI-TUI` | `platform/hsctl-terminal-ui.spec.md` | 4 |
+| `CLI-WASM` | `platform/hsctl-browser-build.spec.md` | 6 |
 
 ### CTRL
 
@@ -227,13 +228,15 @@ the rest of `WEB` here for lookup convenience.
 | `WEB-I18N` | `web-console/architecture.spec.md` | 1 |
 | `WEB-OBS` | `web-console/architecture.spec.md` | 2 |
 | `WEB-OPS` | `web-console/operational-dashboard.spec.md` | 29 |
-| `WEB-PADM` | `web-console/platform-policy-admin.spec.md` | 12 |
+| `WEB-PADM` | `web-console/platform-policy-admin.spec.md` | 13 |
 | `WEB-PKG` | `web-console/architecture.spec.md` | 4 |
 | `WEB-PLC` | `web-console/gateway-provision-placement.spec.md` | 9 |
 | `WEB-QUAL` | `web-console/architecture.spec.md` | 3 |
 | `WEB-SDK` | `web-console/architecture.spec.md` | 1 |
 | `WEB-SEC` | `web-console/architecture.spec.md` | 1 |
+| `WEB-TERM` | `web-console/hsctl-browser-terminal.spec.md` | 14 |
 | `WEB-TRC` | `web-console/tracing.spec.md` | 11 |
+| `WEB-UDOC` | `web-console/user-documentation.spec.md` | 13 |
 | `WEB-UIEX` | `web-console/architecture.spec.md` | 8 |
 | `WEB-USE` | `web-console/usage-dashboard.spec.md` | 11 |
 | `WEB-VER` | `web-console/gateway-version-visibility.spec.md` | 4 |

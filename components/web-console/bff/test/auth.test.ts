@@ -341,6 +341,14 @@ describe("web-console BFF with OIDC enabled", () => {
       path.join(staticRoot, "assets", "app-deadbeef.js"),
       'console.log("asset");',
     );
+    await writeFile(
+      path.join(staticRoot, "manifest.webmanifest"),
+      '{"name":"HyperShell","display":"standalone","start_url":"/","scope":"/"}',
+    );
+    await writeFile(
+      path.join(staticRoot, "assets", "hsctl-worker-Ab12_c-D.js"),
+      'importScripts("/assets/wasm_exec-1234abcd.js");',
+    );
 
     // --- build app ---
     const config: ServerConfig = {
@@ -926,6 +934,189 @@ describe("web-console BFF with OIDC enabled", () => {
       expect(response.statusCode, route).toBe(302);
       expect(response.headers.location, route).toBe("/auth/login");
     }
+  });
+
+  // -----------------------------------------------------------------------
+  // Public docs navigation (WEB-UDOC-02, WEB-UDOC-13) and the web app
+  // manifest (WEB-TERM-11)
+  // -----------------------------------------------------------------------
+
+  // Verifies: WEB-UDOC-01.01, WEB-UDOC-02, WEB-UDOC-13.01
+  it("serves every docs route without a session while /gateways and /api stay protected", async () => {
+    const signedIn = await app.inject({
+      headers: { cookie: authenticateSession() },
+      method: "GET",
+      url: "/docs",
+    });
+    for (const route of [
+      "/docs",
+      "/docs/",
+      "/docs/runbooks/github-jira",
+      "/docs/runbooks/gitlab-jira",
+      "/docs/cli/install-hsctl",
+      "/docs/refusals/resource-limits",
+    ]) {
+      const response = await app.inject({ method: "GET", url: route });
+      expect(response.statusCode, route).toBe(200);
+      expect(response.headers["content-type"], route).toContain("text/html");
+      expect(response.headers["cache-control"], route).toBe("no-store");
+      // The document is identical for signed-in and signed-out readers.
+      expect(response.body, route).toBe(signedIn.body);
+    }
+
+    const gateways = await app.inject({ method: "GET", url: "/gateways" });
+    expect(gateways.statusCode).toBe(302);
+    expect(gateways.headers.location).toBe("/auth/login");
+
+    const api = await app.inject({
+      method: "GET",
+      url: "/api/hypershell/v1/gateways",
+    });
+    expect(api.statusCode).toBe(401);
+    expect(api.json()).toMatchObject({ error: "reauth_required" });
+    expect(apiRequests).toHaveLength(0);
+  });
+
+  // Verifies: WEB-UDOC-02.01
+  it("serves a signed-out refusal link with its query without a redirect", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/docs/refusals/resource-limits?policy=sandbox-cpu-limit",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers.location).toBeUndefined();
+    expect(response.headers["content-type"]).toContain("text/html");
+  });
+
+  // Verifies: WEB-UDOC-02.02
+  it("keeps sign-in, CSRF, and session checks on the API from a docs page", async () => {
+    const write = await app.inject({
+      headers: {
+        "content-type": "application/json",
+        referer: "https://console.example.test/docs/runbooks/github-jira",
+        "sec-fetch-site": "same-origin",
+      },
+      method: "POST",
+      payload: { name: "docs-gateway" },
+      url: "/api/hypershell/v1/gateways",
+    });
+    expect(write.statusCode).toBe(401);
+    expect(write.json()).toMatchObject({ error: "reauth_required" });
+
+    const crossSite = await app.inject({
+      headers: {
+        cookie: authenticateSession(),
+        "content-type": "application/json",
+        "sec-fetch-site": "cross-site",
+      },
+      method: "POST",
+      payload: { name: "docs-gateway" },
+      url: "/api/hypershell/v1/gateways",
+    });
+    expect(crossSite.statusCode).toBe(403);
+    expect(apiRequests).toHaveLength(0);
+
+    const gatewayNew = await app.inject({
+      method: "GET",
+      url: "/gateways/new",
+    });
+    expect(gatewayNew.statusCode).toBe(302);
+    expect(gatewayNew.headers.location).toBe("/auth/login");
+  });
+
+  // Verifies: WEB-UDOC-02.03
+  it("does not give look-alike paths the public docs exception", async () => {
+    for (const route of [
+      "/docs/../gateways",
+      "/docs/%2e%2e/gateways",
+      "/docs/%2E%2E/gateways",
+      "/docs/./../gateways/new",
+    ]) {
+      const response = await app.inject({ method: "GET", url: route });
+      expect(response.statusCode, route).toBe(302);
+      expect(response.headers.location, route).toBe("/auth/login");
+    }
+    for (const route of [
+      "/docsx",
+      "/docs-preview",
+      "/docs/unknown-page",
+      "/docs/runbooks",
+      "/docs/runbooks/github-jira/extra",
+    ]) {
+      const response = await app.inject({ method: "GET", url: route });
+      expect(response.statusCode, route).toBe(404);
+      expect(response.headers["content-type"], route).not.toContain(
+        "text/html",
+      );
+    }
+  });
+
+  // Verifies: WEB-TERM-11.01
+  it("serves the web app manifest without a session", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/manifest.webmanifest",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain(
+      "application/manifest+json",
+    );
+    expect(response.headers["cache-control"]).toBe("no-cache");
+    expect(response.json()).toMatchObject({
+      display: "standalone",
+      name: "HyperShell",
+    });
+  });
+
+  // Verifies: WEB-TERM-10.01
+  it("allows WebAssembly compilation only in the hsctl worker script CSP", async () => {
+    const document = await app.inject({ method: "GET", url: "/docs" });
+    const documentCsp = String(document.headers["content-security-policy"]);
+    expect(documentCsp).toContain("worker-src 'self'");
+    expect(documentCsp).toContain("manifest-src 'self'");
+    expect(documentCsp).not.toContain("wasm-unsafe-eval");
+    expect(documentCsp).not.toContain("'unsafe-eval'");
+
+    const worker = await app.inject({
+      method: "GET",
+      url: "/assets/hsctl-worker-Ab12_c-D.js",
+    });
+    expect(worker.statusCode).toBe(200);
+    expect(worker.headers["cache-control"]).toContain("immutable");
+    const workerCsp = String(worker.headers["content-security-policy"]);
+    expect(workerCsp).toContain("script-src 'self' 'wasm-unsafe-eval'");
+    expect(workerCsp).toContain("connect-src 'self'");
+    expect(workerCsp).not.toContain("'unsafe-eval'");
+
+    const otherAsset = await app.inject({
+      method: "GET",
+      url: "/assets/app-deadbeef.js",
+    });
+    expect(String(otherAsset.headers["content-security-policy"])).not.toContain(
+      "wasm-unsafe-eval",
+    );
+  });
+
+  // Verifies: WEB-TERM-14.01, CLI-WASM-03
+  it("authenticates a terminal API request with the session cookie, not a browser token", async () => {
+    const response = await app.inject({
+      headers: {
+        cookie: authenticateSession(),
+        "sec-fetch-site": "same-origin",
+        "user-agent": "hsctl/0.1.0",
+      },
+      method: "GET",
+      url: "/api/hypershell/v1/gateways",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(apiRequests).toHaveLength(1);
+    expect(apiRequests[0]?.headers.authorization).toBe(
+      "Bearer test-access-token",
+    );
+    expect(apiRequests[0]?.headers.cookie).toBeUndefined();
   });
 
   it("serves /dashboard to authenticated non-admin users", async () => {

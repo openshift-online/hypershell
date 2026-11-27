@@ -399,6 +399,17 @@ export const messages = defineMessages({
     defaultMessage: "Toggle navigation",
     description: "Accessible label for the navigation toggle button.",
   },
+  documentation: {
+    id: "app.nav.documentation",
+    defaultMessage: "Documentation",
+    description: "Primary navigation link to the docs section",
+  },
+  signIn: {
+    id: "app.masthead.signIn",
+    defaultMessage: "Sign in",
+    description:
+      "Masthead action shown in place of the user identity for a signed-out reader",
+  },
   overview: {
     id: "app.nav.overview",
     defaultMessage: "Overview",

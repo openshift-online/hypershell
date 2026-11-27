@@ -112,9 +112,16 @@ export function createCorrelatedFetch(
   };
 }
 
+/**
+ * Creates the SDK client for one correlated operation. By default an expired
+ * session navigates to sign-in; pass `null` for `onReauthRequired` when the
+ * caller presents its own sign-in link instead (docs runbook cells,
+ * WEB-UDOC-03): the 401 then surfaces as a denied operation and the page does
+ * not navigate.
+ */
 export function createApiClient(
   correlationId: string,
-  onReauthRequired: ReauthHandler = redirectToLogin,
+  onReauthRequired: ReauthHandler | null = redirectToLogin,
   traceContext?: TraceContextProvider,
 ): SDKClient {
   return new SDKClient({
@@ -123,7 +130,7 @@ export function createApiClient(
     fetch: createCorrelatedFetch(
       correlationId,
       globalThis.fetch,
-      onReauthRequired,
+      onReauthRequired ?? undefined,
       traceContext,
     ),
   });

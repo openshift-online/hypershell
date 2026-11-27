@@ -93,6 +93,19 @@ trap 'rm -rf "$tmp"' EXIT
   --module github.com/openshift-online/hypershell/components/cli) >/dev/null
 gofmt -w "$tmp"
 
+# The native hsctl and the browser module share one command registration in
+# cmd/hsctl/commands (specs/platform/hsctl-browser-build.spec.md, CLI-WASM-01).
+# The generator writes its registration into package main, which the browser
+# entry point cannot import, so move it into the shared package unchanged except
+# for the package clause.
+generated_registration="$tmp/cmd/hsctl/generated_commands.go"
+if [[ -f "$generated_registration" ]]; then
+  mkdir -p "$tmp/cmd/hsctl/commands"
+  sed 's/^package main$/package commands/' "$generated_registration" \
+    >"$tmp/cmd/hsctl/commands/generated_commands.go"
+  rm "$generated_registration"
+fi
+
 drift=()
 while IFS= read -r file; do
   skip=0

@@ -33,6 +33,10 @@ test-results/
 perf-results/
 *.tsbuildinfo
 
+# hsctl browser module built by scripts/build-hsctl-wasm.sh for the web console
+# terminal (specs/platform/hsctl-browser-build.spec.md, CLI-WASM-05).
+components/web-console/.hsctl-runtime/
+
 # Agent Package Manager cache
 apm_modules/
 

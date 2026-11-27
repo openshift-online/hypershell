@@ -265,6 +265,19 @@ export const editorMessages = defineMessages({
     defaultMessage: "Documentation URL",
     description: "Label of the policy documentation URL field.",
   },
+  documentationSuggestion: {
+    id: "app.platformPolicies.editor.documentationSuggestion",
+    defaultMessage: "Use the console resource limit help page",
+    description:
+      "One-click suggestion that fills the documentation URL with the console resource limit help page.",
+  },
+  documentationSuggestionHelper: {
+    id: "app.platformPolicies.editor.documentationSuggestionHelper",
+    defaultMessage:
+      "Users can open it without signing in, so the link works from the OpenShell CLI.",
+    description:
+      "Helper text next to the documentation URL suggestion explaining that the page is public.",
+  },
   appliesToSection: {
     id: "app.platformPolicies.editor.appliesToSection",
     defaultMessage: "Applies to",

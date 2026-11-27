@@ -29,7 +29,7 @@ import { messages } from "../messages";
 import { externalLinkUrls } from "../application/external-links";
 import { CommandBlock, sanitizeFieldValue } from "./editable-command";
 import {
-  buildGatewayAddCommand,
+  buildGatewaySelectCommand,
   buildOpenShellInstallCommand,
   doubleQuotedShellArgument,
   isGatewayReadyToConnect,
@@ -159,21 +159,6 @@ function buildEnmaasSandboxCommand(
     "  --env=CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1 \\",
     "  --no-auto-providers \\",
     `  -- bash -lc ${doubleQuotedShellArgument(startupCommand)}`,
-  ].join("\n");
-}
-
-function buildGatewaySelectCommand(gateway: GatewayConnection) {
-  const gatewayAdd = buildGatewayAddCommand(gateway);
-  if (!gatewayAdd) {
-    return undefined;
-  }
-  const gatewayMatch = `"name": "${gateway.name}"`;
-
-  return [
-    `if ! openshell gateway list -o json | grep -qF -- ${shellArgument(gatewayMatch)}; then`,
-    `  ${gatewayAdd.replaceAll("\n", "\n  ")}`,
-    "fi",
-    `openshell gateway select ${shellArgument(gateway.name)}`,
   ].join("\n");
 }
 

@@ -21,6 +21,22 @@ export default [
     route(routes.gatewayNew, "./routes/gateway-new.tsx"),
     route(routes.gatewayDetail, "./routes/gateway.tsx"),
     route(routes.metrics, "./routes/metrics.tsx"),
+    // Public docs routes (WEB-UDOC-01). Each is its own lazily loaded route
+    // module, so docs code adds nothing to other route bundles.
+    route(routes.docs, "./routes/docs.tsx"),
+    route(
+      routes.docsRunbookGithubJira,
+      "./routes/docs-runbook-github-jira.tsx",
+    ),
+    route(
+      routes.docsRunbookGitlabJira,
+      "./routes/docs-runbook-gitlab-jira.tsx",
+    ),
+    route(routes.docsCliInstallHsctl, "./routes/docs-cli-install-hsctl.tsx"),
+    route(
+      routes.docsRefusalResourceLimits,
+      "./routes/docs-refusal-resource-limits.tsx",
+    ),
     route(routes.adminPlatformPolicies, "./routes/admin-platform-policies.tsx"),
     route(
       routes.adminPlatformPolicyNew,

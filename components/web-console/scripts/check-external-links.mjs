@@ -87,8 +87,23 @@ export async function checkExternalLinkRegistryUsage() {
   }
 }
 
+// Internal Red Hat hosts that resolve only on the Red Hat VPN. The online
+// check cannot reach them from CI or a public network, so it reports them as
+// skipped instead of failing; the static integrity checks still apply.
+export const vpnOnlyHosts = new Set(["gitlab.cee.redhat.com"]);
+
 async function checkUrl(name, url, fetchImplementation, timeoutMs) {
   const hostname = new URL(url).hostname;
+  if (vpnOnlyHosts.has(hostname)) {
+    return {
+      name,
+      ok: true,
+      status: undefined,
+      url,
+      skipped: true,
+      reason: "requires Red Hat VPN",
+    };
+  }
   if (
     hostname === "localhost" ||
     hostname === "127.0.0.1" ||
@@ -173,7 +188,7 @@ async function main() {
   for (const result of results) {
     const status = result.skipped ? "SKIP" : result.ok ? "PASS" : "FAIL";
     const detail = result.ok
-      ? String(result.status ?? "")
+      ? String(result.reason ?? result.status ?? "")
       : (result.error ?? "unknown failure");
     console.log(`${status} ${result.name} ${result.url} ${detail}`);
   }

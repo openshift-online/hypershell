@@ -13,6 +13,7 @@
     "playwright.config.ts",
     "playwright.live.config.ts",
     "vitest.config.ts",
+    "vite-plugins/**/*",
     "vitest.setup.ts"
   ],
   "exclude": []

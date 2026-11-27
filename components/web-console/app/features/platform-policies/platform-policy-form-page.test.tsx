@@ -59,15 +59,20 @@ vi.mock("./cedar-code-editor", () => ({
 function Harness({
   cedar,
   evaluation,
+  initial = {},
   onSave = vi.fn(),
   overrides = {},
 }: {
   cedar: string;
   evaluation?: PlatformPolicyEvaluation;
+  initial?: Partial<ReturnType<typeof editorFormValues>>;
   onSave?: () => void;
   overrides?: Partial<PlatformPolicyFormPageProps>;
 }) {
-  const [values, setValues] = useState(() => editorFormValues(cedar));
+  const [values, setValues] = useState(() => ({
+    ...editorFormValues(cedar),
+    ...initial,
+  }));
   const [testValues, setTestValues] = useState(editorTestValues);
   return (
     <IntlProvider locale="en" messages={englishMessages}>
@@ -308,6 +313,55 @@ describe("PlatformPolicyFormPage", () => {
     ).toBeTruthy();
     await userEvent.click(saveButton());
     expect(onSave).not.toHaveBeenCalled();
+  });
+
+  // Verifies: WEB-PADM-13.01
+  it("fills an empty documentation URL with the console help page on request", async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        cedar={validCedar}
+        evaluation={validEvaluation}
+        initial={{ documentationUrl: "", name: "sandbox-cpu-limit" }}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Use the console resource limit help page",
+      }),
+    );
+
+    expect(
+      screen.getByLabelText<HTMLInputElement>("Documentation URL").value,
+    ).toBe(
+      `${globalThis.location.origin}/docs/refusals/resource-limits?policy=sandbox-cpu-limit`,
+    );
+    expect(
+      screen.queryByRole("button", {
+        name: "Use the console resource limit help page",
+      }),
+    ).toBeNull();
+  });
+
+  // Verifies: WEB-PADM-13.02
+  it("does not offer to replace an entered documentation URL", () => {
+    render(
+      <Harness
+        cedar={validCedar}
+        evaluation={validEvaluation}
+        initial={{ documentationUrl: "https://example.com/limits" }}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", {
+        name: "Use the console resource limit help page",
+      }),
+    ).toBeNull();
+    expect(
+      screen.getByLabelText<HTMLInputElement>("Documentation URL").value,
+    ).toBe("https://example.com/limits");
   });
 
   // Verifies: WEB-PADM-09.02

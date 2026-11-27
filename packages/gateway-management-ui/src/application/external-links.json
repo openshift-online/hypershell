@@ -1,6 +1,7 @@
 {
   "enmaasApiEndpoint": "https://api.enmaas.devshift.net",
   "enmaasDocs": "https://source.redhat.com/departments/products_and_global_engineering/workload_management/enmaas",
+  "hyperShellReleases": "https://github.com/openshift-online/hypershell/releases",
   "hyperShellRepository": "https://github.com/openshift-online/hypershell/",
   "localInferenceEndpoint": "https://inference.local",
   "openShellDocs": "https://docs.nvidia.com/openshell/about/overview",
@@ -8,6 +9,7 @@
   "openShellCliInstallation": "https://docs.nvidia.com/openshell/about/installation",
   "openShellProviderProfileDocs": "https://docs.nvidia.com/openshell/providers/manage-providers#provider-profiles",
   "openShellVertexProviderProfile": "https://raw.githubusercontent.com/NVIDIA/OpenShell/main/providers/google-vertex-ai.yaml",
+  "redHatInternalGitLab": "https://gitlab.cee.redhat.com",
   "sandboxConnectDocs": "https://docs.nvidia.com/openshell/how-it-works/sandboxes/overview#connect-to-a-sandbox",
   "supportSlackChannel": "https://redhat.enterprise.slack.com/archives/C0BR5Q2NNJ0"
 }

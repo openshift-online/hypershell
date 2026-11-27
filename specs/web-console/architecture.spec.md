@@ -280,8 +280,9 @@ The BFF SHALL use Node.js LTS and Fastify to provide:
 - an authenticated `/api/*` reverse proxy to the HyperShell REST API;
 - the immutable built SPA assets and non-cacheable application document;
 - liveness and readiness endpoints independent of authenticated product routes;
-- security headers, request limits, structured logs, and trace propagation; and
-- explicit 404 behavior for unknown API, asset, and server routes.
+- security headers, request limits, structured logs, and trace propagation;
+- explicit 404 behavior for unknown API, asset, and server routes; and
+- the public docs navigations and web app manifest that need no session (`user-documentation.spec.md` WEB-UDOC-02, `hsctl-browser-terminal.spec.md` WEB-TERM-11), while every `/api/*` request keeps requiring a session.
 
 The proxy SHALL use an allowlisted upstream origin, remove untrusted hop-by-hop and identity headers, set the server-held authorization header, impose timeouts and body limits, preserve safe API status semantics, and cancel upstream work after client disconnect where supported.
 
@@ -337,7 +338,7 @@ Destructive and conflicting changes SHALL follow the interaction and recovery re
 
 The implementation SHALL follow `standards/ui/patternfly.spec.md`. It SHALL use PatternFly 6 packages from a compatible release set and install optional PatternFly packages only when a feature consumes them. CSS Modules MAY fill product-specific layout or presentation gaps using PatternFly semantic tokens and logical properties.
 
-Tailwind, Bootstrap, Material UI, Chakra UI, another general-purpose component system, Sass, and a CSS-in-JS styling system SHALL NOT be introduced. Charts, terminals, editors, and other specialized widgets MAY be added only with a concrete feature, accessibility review, bundle assessment, and documented PatternFly integration.
+Tailwind, Bootstrap, Material UI, Chakra UI, another general-purpose component system, Sass, and a CSS-in-JS styling system SHALL NOT be introduced. Charts, terminals, editors, and other specialized widgets MAY be added only with a concrete feature, accessibility review, bundle assessment, and documented PatternFly integration. The `hsctl` browser terminal (`hsctl-browser-terminal.spec.md` WEB-TERM-12) is admitted on these terms.
 
 **Verification:** Inspect dependencies, imports, rendered class names, tokens, and CSS. Map every custom component to the admission evidence required by the PatternFly standard.
 
@@ -827,15 +828,15 @@ The runtime container and Kubernetes workload SHALL run as non-root, disallow pr
 
 Content-hashed static assets SHALL use long-lived immutable caching and compression. The application HTML and deployment configuration SHALL not use long-lived caching. Source maps SHALL be uploaded privately to the selected error system or retained as protected build artifacts; they SHALL NOT be publicly served by default.
 
-`VITE_*` variables SHALL be treated as public compile-time constants and SHALL never contain credentials, tokens, private origins, or other secrets. Environment-specific server settings and sensitive configuration SHALL be read and validated by the BFF at runtime. Any browser-visible runtime configuration endpoint SHALL expose only an allowlisted, non-sensitive schema. Build identification is non-sensitive: the runtime configuration allowlist SHALL include the console build version stamped into the image and the API server build version relayed by the BFF from the API metadata endpoint. A missing, unreachable, or malformed version SHALL degrade to an `unknown` placeholder rather than disabling the console or its tracing configuration.
+`VITE_*` variables SHALL be treated as public compile-time constants and SHALL never contain credentials, tokens, private origins, or other secrets. Environment-specific server settings and sensitive configuration SHALL be read and validated by the BFF at runtime. Any browser-visible runtime configuration endpoint SHALL expose only an allowlisted, non-sensitive schema. Build identification is non-sensitive: the runtime configuration allowlist SHALL include the console build version stamped into the image and the API server build version relayed by the BFF from the API metadata endpoint. A missing, unreachable, or malformed version SHALL degrade to an `unknown` placeholder rather than disabling the console or its tracing configuration. The allowlist SHALL also include the optional `hsctl` release download location `hsctl_download_base_url` (`user-documentation.spec.md` WEB-UDOC-08).
 
-No service worker or offline mutation queue SHALL ship initially. Either feature requires an explicit cache invalidation, privacy, session-transition, update, conflict, and recovery design.
+No service worker or offline mutation queue SHALL ship initially. The public web app manifest (`hsctl-browser-terminal.spec.md` WEB-TERM-11) registers no service worker. Either feature requires an explicit cache invalidation, privacy, session-transition, update, conflict, and recovery design.
 
 **Verification:** Inspect built JavaScript, source maps, cache headers, compressed responses, runtime configuration, and browser caches before and after logout and deployment replacement.
 
 ### Requirement: WEB-SEC-01 -- Browser Security Headers
 
-The BFF SHALL set a reviewed Content Security Policy, frame-ancestor restriction, MIME sniffing protection, referrer policy, permissions policy, and HSTS where TLS deployment permits it. CSP SHALL begin in report-only mode while third-party and framework behavior is inventoried, then become enforcing before production release. Unsafe script execution and unbounded third-party origins SHALL NOT be accepted as permanent defaults.
+The BFF SHALL set a reviewed Content Security Policy, frame-ancestor restriction, MIME sniffing protection, referrer policy, permissions policy, and HSTS where TLS deployment permits it. CSP SHALL begin in report-only mode while third-party and framework behavior is inventoried, then become enforcing before production release. Unsafe script execution and unbounded third-party origins SHALL NOT be accepted as permanent defaults. The SPA document CSP SHALL include `worker-src 'self'` and `manifest-src 'self'` and SHALL NOT allow WebAssembly compilation; only the `hsctl` terminal worker script response SHALL allow `'wasm-unsafe-eval'` (`hsctl-browser-terminal.spec.md` WEB-TERM-10). No CSP SHALL allow `'unsafe-eval'`.
 
 User- or API-provided text SHALL render as text by default. Raw HTML rendering requires sanitization, a documented need, and adversarial tests. URLs, redirects, downloads, and external links SHALL use allowlisted schemes and destinations appropriate to their purpose.
 

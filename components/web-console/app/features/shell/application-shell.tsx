@@ -43,11 +43,15 @@ import { hasDashboardAdminRole } from "../../lib/session-roles";
 import { messages } from "../../i18n/messages";
 import productLogo from "../../../../../images/brand/logo.png";
 import { platformPoliciesMessages } from "../platform-policies/platform-policies-messages";
+import { TerminalProvider } from "../terminal/terminal-context";
+import { TerminalDrawer } from "../terminal/terminal-drawer";
+import { TerminalTrigger } from "../terminal/terminal-trigger";
 import { usePlatformPolicy } from "../platform-policies/use-platform-policies";
 import { usePlatformPolicyAccess } from "../platform-policies/use-platform-policy-access";
 import { useColorScheme } from "./use-color-scheme";
 import { useRouteHeadingFocus } from "./route-focus";
 import { useSession } from "./use-session";
+import { SignInAction } from "./sign-in-action";
 import { UserMenu } from "./user-menu";
 import {
   gatewayDetailPath,
@@ -164,7 +168,11 @@ export function ApplicationShell() {
               />
             </ToolbarItem>
             <ToolbarItem>
+              <TerminalTrigger />
+            </ToolbarItem>
+            <ToolbarItem>
               <UserMenu />
+              <SignInAction />
             </ToolbarItem>
           </ToolbarContent>
         </Toolbar>
@@ -233,6 +241,8 @@ export function ApplicationShell() {
     pathname === routePaths.gatewayList;
   const isDashboardRoute = pathname.startsWith(routePaths.dashboard);
   const isOverviewRoute = pathname === routePaths.home;
+  const isDocsRoute =
+    pathname === routePaths.docs || pathname.startsWith(`${routePaths.docs}/`);
 
   const sidebar = (
     <PageSidebar>
@@ -252,6 +262,11 @@ export function ApplicationShell() {
             <NavItem isActive={isDashboardRoute} key={routePaths.dashboard}>
               <Link className={styles.navLink} to={routePaths.dashboard}>
                 {intl.formatMessage(messages.dashboard)}
+              </Link>
+            </NavItem>
+            <NavItem isActive={isDocsRoute} key={routePaths.docs}>
+              <Link className={styles.navLink} to={routePaths.docs}>
+                {intl.formatMessage(messages.documentation)}
               </Link>
             </NavItem>
           </NavList>
@@ -282,28 +297,32 @@ export function ApplicationShell() {
   );
 
   return (
-    <DashboardUiProvider
-      dashboard={dashboardOperations}
-      isAdmin={hasDashboardAdminRole(session?.roles ?? [])}
-      navigation={dashboardNavigation}
-    >
-      <GatewayUiProvider
-        currentUser={gatewayCurrentUser}
-        gateways={gatewayOperations}
-        navigation={gatewayNavigation}
+    <TerminalProvider>
+      <DashboardUiProvider
+        dashboard={dashboardOperations}
+        isAdmin={hasDashboardAdminRole(session?.roles ?? [])}
+        navigation={dashboardNavigation}
       >
-        <Page
-          breadcrumb={breadcrumb}
-          isContentFilled
-          isManagedSidebar
-          mainContainerId="main-content"
-          masthead={masthead}
-          sidebar={sidebar}
-          skipToContent={skipToContent}
+        <GatewayUiProvider
+          currentUser={gatewayCurrentUser}
+          gateways={gatewayOperations}
+          navigation={gatewayNavigation}
         >
-          <Outlet />
-        </Page>
-      </GatewayUiProvider>
-    </DashboardUiProvider>
+          <TerminalDrawer>
+            <Page
+              breadcrumb={breadcrumb}
+              isContentFilled
+              isManagedSidebar
+              mainContainerId="main-content"
+              masthead={masthead}
+              sidebar={sidebar}
+              skipToContent={skipToContent}
+            >
+              <Outlet />
+            </Page>
+          </TerminalDrawer>
+        </GatewayUiProvider>
+      </DashboardUiProvider>
+    </TerminalProvider>
   );
 }

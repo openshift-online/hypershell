@@ -225,6 +225,15 @@ jobs:
       - name: Run go vet
         working-directory: components/cli
         run: go vet ./...
+      # The browser module for the web console terminal
+      # (specs/platform/hsctl-browser-build.spec.md, CLI-WASM-05, CLI-WASM-06).
+      - name: Run go vet for js/wasm
+        working-directory: components/cli
+        run: GOOS=js GOARCH=wasm go vet ./...
+      - name: Build the hsctl browser module
+        run: sh scripts/build-hsctl-wasm.sh "${RUNNER_TEMP}/hsctl-runtime"
+      - name: Check the hsctl browser module size
+        run: sh scripts/check-hsctl-wasm-size.sh "${RUNNER_TEMP}/hsctl-runtime/hsctl.wasm"
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:

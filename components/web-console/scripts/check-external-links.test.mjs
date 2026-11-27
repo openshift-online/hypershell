@@ -54,6 +54,27 @@ describe("external link checks", () => {
     expect(results[0]).toMatchObject({ ok: true, status: 200 });
   });
 
+  // Verifies: WEB-UDOC-07
+  it("skips the VPN-only internal GitLab host without a network request", async () => {
+    const fetchImplementation = vi.fn();
+    await expect(
+      checkExternalLinks({
+        fetchImplementation,
+        registry: { redHatInternalGitLab: "https://gitlab.cee.redhat.com" },
+      }),
+    ).resolves.toEqual([
+      {
+        name: "redHatInternalGitLab",
+        ok: true,
+        reason: "requires Red Hat VPN",
+        skipped: true,
+        status: undefined,
+        url: "https://gitlab.cee.redhat.com",
+      },
+    ]);
+    expect(fetchImplementation).not.toHaveBeenCalled();
+  });
+
   it("skips local command endpoints without a network request", async () => {
     const fetchImplementation = vi.fn();
     const results = await checkExternalLinks({
